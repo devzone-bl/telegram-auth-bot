@@ -1,7 +1,7 @@
 import logging
 import os
 from flask import Flask, request
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 # ---------- CONFIGURATION ----------
@@ -22,10 +22,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ---------- TELEGRAM BOT SETUP ----------
-# Create Application instance (will be initialized after webhook is set)
-application = None
+# ---------- CREATE APPLICATION ONCE ----------
+application = Application.builder().token(BOT_TOKEN).build()
 
+# ---------- HANDLER FUNCTIONS ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Auth Bot is running!\n"
@@ -83,21 +83,22 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f.write(mac + "\n")
         await query.edit_message_text(text=f"❌ Denied {mac}")
 
+# ---------- REGISTER HANDLERS ----------
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CommandHandler("approve", approve_command))
+application.add_handler(CommandHandler("deny", deny_command))
+application.add_handler(CommandHandler("list", list_approved))
+application.add_handler(CommandHandler("banall", ban_all))
+application.add_handler(CallbackQueryHandler(button_callback))
+
 # ---------- FLASK WEBHOOK ENDPOINT ----------
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    global application
-    if application is None:
-        # Lazy initialization of the bot application
-        application = Application.builder().token(BOT_TOKEN).build()
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("approve", approve_command))
-        application.add_handler(CommandHandler("deny", deny_command))
-        application.add_handler(CommandHandler("list", list_approved))
-        application.add_handler(CommandHandler("banall", ban_all))
-        application.add_handler(CallbackQueryHandler(button_callback))
+    """Receive update from Telegram and process it."""
     update = Update.de_json(request.get_json(force=True), application.bot)
-    application.process_update(update)
+    # Let the application process the update asynchronously
+    # We use application.update_queue.put() because we are in a sync Flask route
+    application.update_queue.put_nowait(update)
     return "OK", 200
 
 @app.route('/health', methods=['GET'])
