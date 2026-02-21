@@ -5,11 +5,14 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 # ---------- CONFIGURATION ----------
-BOT_TOKEN = os.environ.get("BOT_TOKEN")  # Railway will set this
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("No BOT_TOKEN environment variable set")
+
 APPROVED_FILE = "approved.txt"
 BANNED_FILE = "banned.txt"
 
-# Flask app for Railway health checks
+# Flask app
 app = Flask(__name__)
 
 # Enable logging
@@ -19,9 +22,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ---------- TELEGRAM BOT HANDLERS ----------
+# ---------- TELEGRAM BOT SETUP ----------
+# Create Application instance (will be initialized after webhook is set)
+application = None
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Welcome message"""
     await update.message.reply_text(
         "Auth Bot is running!\n"
         "Commands:\n"
@@ -32,29 +37,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Manually approve a MAC address"""
     if not context.args:
         await update.message.reply_text("Usage: /approve MAC_ADDRESS")
         return
-    
     mac = context.args[0]
     with open(APPROVED_FILE, "a") as f:
         f.write(mac + "\n")
     await update.message.reply_text(f"✅ Approved {mac}")
 
 async def deny_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Manually deny a MAC address"""
     if not context.args:
         await update.message.reply_text("Usage: /deny MAC_ADDRESS")
         return
-    
     mac = context.args[0]
     with open(BANNED_FILE, "a") as f:
         f.write(mac + "\n")
     await update.message.reply_text(f"❌ Denied {mac}")
 
 async def list_approved(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show all approved MACs"""
     try:
         with open(APPROVED_FILE, "r") as f:
             approved = f.read().strip()
@@ -66,18 +66,14 @@ async def list_approved(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("No approved users")
 
 async def ban_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Remove all approvals"""
     open(APPROVED_FILE, "w").close()
     await update.message.reply_text("⚠️ All users banned (approved list cleared)")
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle inline button presses from your C++ app"""
     query = update.callback_query
     await query.answer()
-    
     data = query.data  # Format: "action|MAC"
     action, mac = data.split('|')
-    
     if action == "approve":
         with open(APPROVED_FILE, "a") as f:
             f.write(mac + "\n")
@@ -90,40 +86,25 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------- FLASK WEBHOOK ENDPOINT ----------
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    """Receives updates from Telegram"""
+    global application
+    if application is None:
+        # Lazy initialization of the bot application
+        application = Application.builder().token(BOT_TOKEN).build()
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("approve", approve_command))
+        application.add_handler(CommandHandler("deny", deny_command))
+        application.add_handler(CommandHandler("list", list_approved))
+        application.add_handler(CommandHandler("banall", ban_all))
+        application.add_handler(CallbackQueryHandler(button_callback))
     update = Update.de_json(request.get_json(force=True), application.bot)
     application.process_update(update)
     return "OK", 200
 
 @app.route('/health', methods=['GET'])
 def health():
-    """Health check endpoint for Railway"""
     return "OK", 200
 
-# ---------- MAIN ----------
-def main():
-    global application
-    # Create bot application
-    application = Application.builder().token(BOT_TOKEN).build()
-    
-    # Add handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("approve", approve_command))
-    application.add_handler(CommandHandler("deny", deny_command))
-    application.add_handler(CommandHandler("list", list_approved))
-    application.add_handler(CommandHandler("banall", ban_all))
-    application.add_handler(CallbackQueryHandler(button_callback))
-    
-    # Set webhook (instead of polling)
-    WEBHOOK_URL = f"https://{os.environ.get('RAILWAY_PUBLIC_DOMAIN')}/webhook"
-    application.bot.set_webhook(url=WEBHOOK_URL)
-    
-    # Flask will run the bot
-    return application
-
-# Initialize bot when module loads
-application = main()
-
-# Run Flask if executed directly
+# ---------- START FLASK ----------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
