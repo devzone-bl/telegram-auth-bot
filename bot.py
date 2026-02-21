@@ -5,7 +5,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 # ---------- CONFIGURATION ----------
-BOT_TOKEN = os.environ.get("8384623189:AAH22WOwmsszqWfzct1Ieh4hZVXbMNK70jw")  # Railway will set this
+BOT_TOKEN = os.environ.get("BOT_TOKEN")  # Railway will set this
 APPROVED_FILE = "approved.txt"
 BANNED_FILE = "banned.txt"
 
