@@ -1,131 +1,129 @@
 import logging
+import os
+from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# -------------------- CONFIGURATION --------------------
-BOT_TOKEN = "8384623189:AAH22WOwmsszqWfzct1Ieh4hZVXbMNK70jw"
-ADMIN_CHAT_ID = "-5295119518"  # Your personal chat ID
+# ---------- CONFIGURATION ----------
+BOT_TOKEN = os.environ.get("8384623189:AAH22WOwmsszqWfzct1Ieh4hZVXbMNK70jw")  # Railway will set this
 APPROVED_FILE = "approved.txt"
 BANNED_FILE = "banned.txt"
-# -------------------------------------------------------
+
+# Flask app for Railway health checks
+app = Flask(__name__)
 
 # Enable logging
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
+# ---------- TELEGRAM BOT HANDLERS ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send a welcome message when the command /start is issued."""
-    await update.message.reply_text("Auth Bot is running. Use /help for commands.")
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send a help message."""
+    """Welcome message"""
     await update.message.reply_text(
+        "Auth Bot is running!\n"
         "Commands:\n"
-        "/start - Welcome\n"
-        "/help - This help\n"
-        "/list - List approved users\n"
-        "/banall - Remove all approved users\n"
-        "/add <MAC> - Manually approve a MAC\n"
-        "/remove <MAC> - Remove a specific MAC"
+        "/approve MAC - Approve a user\n"
+        "/deny MAC - Deny a user\n"
+        "/list - Show approved users\n"
+        "/banall - Remove all approvals"
     )
 
+async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manually approve a MAC address"""
+    if not context.args:
+        await update.message.reply_text("Usage: /approve MAC_ADDRESS")
+        return
+    
+    mac = context.args[0]
+    with open(APPROVED_FILE, "a") as f:
+        f.write(mac + "\n")
+    await update.message.reply_text(f"✅ Approved {mac}")
+
+async def deny_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manually deny a MAC address"""
+    if not context.args:
+        await update.message.reply_text("Usage: /deny MAC_ADDRESS")
+        return
+    
+    mac = context.args[0]
+    with open(BANNED_FILE, "a") as f:
+        f.write(mac + "\n")
+    await update.message.reply_text(f"❌ Denied {mac}")
+
 async def list_approved(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send the list of approved MACs."""
+    """Show all approved MACs"""
     try:
         with open(APPROVED_FILE, "r") as f:
             approved = f.read().strip()
         if approved:
-            await update.message.reply_text(f"Approved MACs:\n{approved}")
+            await update.message.reply_text(f"✅ Approved users:\n{approved}")
         else:
-            await update.message.reply_text("No approved users.")
+            await update.message.reply_text("No approved users")
     except FileNotFoundError:
-        await update.message.reply_text("No approved users.")
+        await update.message.reply_text("No approved users")
 
 async def ban_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Delete the approved file, effectively banning everyone."""
-    open(APPROVED_FILE, "w").close()  # Clear file
-    await update.message.reply_text("All users have been banned (approved list cleared).")
-
-async def add_mac(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Manually add a MAC to approved list."""
-    if not context.args:
-        await update.message.reply_text("Usage: /add <MAC>")
-        return
-    mac = context.args[0]
-    with open(APPROVED_FILE, "a") as f:
-        f.write(mac + "\n")
-    await update.message.reply_text(f"MAC {mac} added to approved list.")
-
-async def remove_mac(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Remove a MAC from approved list."""
-    if not context.args:
-        await update.message.reply_text("Usage: /remove <MAC>")
-        return
-    mac = context.args[0]
-    try:
-        with open(APPROVED_FILE, "r") as f:
-            lines = f.readlines()
-        with open(APPROVED_FILE, "w") as f:
-            for line in lines:
-                if line.strip() != mac:
-                    f.write(line)
-        await update.message.reply_text(f"MAC {mac} removed if it existed.")
-    except FileNotFoundError:
-        await update.message.reply_text("Approved list is empty.")
-
-# This function will be called when your C++ app sends a request
-async def send_approval_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """This is not a command; it's triggered by an external call.
-       We'll use a separate method to actually send the request from the app."""
-    pass  # We'll handle this in the C++ side by calling sendMessage directly
+    """Remove all approvals"""
+    open(APPROVED_FILE, "w").close()
+    await update.message.reply_text("⚠️ All users banned (approved list cleared)")
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle inline keyboard button presses."""
+    """Handle inline button presses from your C++ app"""
     query = update.callback_query
-    await query.answer()  # Acknowledge the button press
-
-    data = query.data  # format: "action|MAC"
+    await query.answer()
+    
+    data = query.data  # Format: "action|MAC"
     action, mac = data.split('|')
-    username = context.user_data.get("username", "Unknown")  # you could store username when sending
-
+    
     if action == "approve":
-        # Add to approved list
         with open(APPROVED_FILE, "a") as f:
             f.write(mac + "\n")
         await query.edit_message_text(text=f"✅ Approved {mac}")
     elif action == "deny":
-        # Optionally add to banned list
         with open(BANNED_FILE, "a") as f:
             f.write(mac + "\n")
         await query.edit_message_text(text=f"❌ Denied {mac}")
-    elif action == "optionA":
-        # Example: add to a special list
-        with open("optionA.txt", "a") as f:
-            f.write(mac + "\n")
-        await query.edit_message_text(text=f"⚙️ Option A applied to {mac}")
-    elif action == "optionB":
-        with open("optionB.txt", "a") as f:
-            f.write(mac + "\n")
-        await query.edit_message_text(text=f"⚙️ Option B applied to {mac}")
 
+# ---------- FLASK WEBHOOK ENDPOINT ----------
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    """Receives updates from Telegram"""
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    application.process_update(update)
+    return "OK", 200
+
+@app.route('/health', methods=['GET'])
+def health():
+    """Health check endpoint for Railway"""
+    return "OK", 200
+
+# ---------- MAIN ----------
 def main():
-    """Start the bot."""
-    # Create the Application
+    global application
+    # Create bot application
     application = Application.builder().token(BOT_TOKEN).build()
-
-    # Register command handlers
+    
+    # Add handlers
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("approve", approve_command))
+    application.add_handler(CommandHandler("deny", deny_command))
     application.add_handler(CommandHandler("list", list_approved))
     application.add_handler(CommandHandler("banall", ban_all))
-    application.add_handler(CommandHandler("add", add_mac))
-    application.add_handler(CommandHandler("remove", remove_mac))
-
-    # Register callback query handler for inline buttons
     application.add_handler(CallbackQueryHandler(button_callback))
+    
+    # Set webhook (instead of polling)
+    WEBHOOK_URL = f"https://{os.environ.get('RAILWAY_PUBLIC_DOMAIN')}/webhook"
+    application.bot.set_webhook(url=WEBHOOK_URL)
+    
+    # Flask will run the bot
+    return application
 
-    # Run the bot
-    application.run_polling()
+# Initialize bot when module loads
+application = main()
 
+# Run Flask if executed directly
 if __name__ == "__main__":
-    main()
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
