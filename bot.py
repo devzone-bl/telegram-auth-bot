@@ -178,10 +178,22 @@ conv_handler = ConversationHandler(
         WAITING_FOR_EXEC_USERS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_exec_users)],
         WAITING_FOR_EXEC_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_exec_final)],
     },
-    fallbacks=[CommandHandler("cancel") ConversationHandler.END)],
-
+    fallbacks=[CommandHandler("cancel", lambda u,c: ConversationHandler.END)],
 )
 application.add_handler(conv_handler)
+
+
+async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancels and ends the conversation."""
+    await update.message.reply_text(
+        "❌ **Action Cancelled.**\nReturning to main menu...", 
+        parse_mode="Markdown"
+    )
+    # Clear any temporary data stored during the process
+    context.user_data.clear()
+    
+    # Return to the start menu
+    return await start(update, context)
 
 # [Your existing Flask / Webhook startup code here]
 loop = asyncio.new_event_loop()
