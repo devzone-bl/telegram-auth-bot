@@ -56,7 +56,7 @@ def write_to_files(mac: str, username: str, status: str):
 
 def batch_update_users(target_input: str, new_status_base: str, extra_text: str = ""):
     if not os.path.exists(USERS_FILE): return 0, []
-    targets = [u.strip() for u in target_input.split() if u.strip()]
+    targets = [u.strip() for u in target_input.split('-') if u.strip()]
     updated_users, new_lines = [], []
     with open(USERS_FILE, "r") as f:
         lines = f.readlines()
@@ -75,7 +75,7 @@ def batch_update_users(target_input: str, new_status_base: str, extra_text: str 
 def delete_sync_users(target_input: str):
     """Deletes lines from USERS and KEYS files by matching the line index."""
     if not os.path.exists(USERS_FILE) or not os.path.exists(KEYS_FILE): return 0
-    targets = [u.strip() for u in target_input.split() if u.strip()]
+    targets = [u.strip() for u in target_input.split('-') if u.strip()]
     
     with open(USERS_FILE, "r") as f: u_lines = f.readlines()
     with open(KEYS_FILE, "r") as f: k_lines = f.readlines()
