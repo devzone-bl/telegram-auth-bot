@@ -135,7 +135,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         except: msg = "❌ File not found."
         await query.edit_message_text(msg, reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
     if c == "m_help":
-        await query.edit_message_text("🚀 **Help**\nDelete removes the user and their specific Key from the same line in both files.", reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
+        await query.edit_message_text("🚀 **Help**\nDelete : removes the user and their specific Key from the same line in both files.\nRegiter : Zid chi user jdid blkey dyalo \nBan : Bani chi user mn lpanel perma \nGrant : 7yd lban lchi user \nExecute : command ydirha loader mli ytft7 \nList : lit dyal ga3 li msjlin db \nClose : Killi Lworking Session", reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
     if c == "m_cancel": await query.edit_message_text("💤 Session Closed."); return ConversationHandler.END
 
 async def handle_registration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
