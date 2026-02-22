@@ -131,8 +131,9 @@ async def process_allow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 # ---------- CONVERSATION HANDLERS ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(
+        "🤖 **Welcome To FaveloXx / Ahmed Authonticator Bot **\n\n"
         "Send Me The KEY And Username.\n"
-        "Example: 5ECE84D8ACB3392FD1CC274D183151D5F79FF5DE902E389AA7130B3588059BFB FaveloXx\n"
+        "Example: 5ECE84D8ACB3392FD1CC274D183151D5F79FF5DE902E389AA7130B3588059BFB USERNAME\n"
         "Or Click /cancel to Abort the Request."
     )
     return WAITING_FOR_MAC_USERNAME
@@ -245,7 +246,8 @@ async def list_approved(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Error reading users file.")
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = (
-        "🤖 **Available Commands:**\n\n"
+        "</> **WELCOME FaveloXx / Ahmed**\n\n"
+        "🤖 **The Commands Options :**\n\n"
         "🔹 `/begin` - Add a new Key and Username\n"
         "🔹 `/ban` - Change a user's status to BAN\n"
         "🔹 `/grant` - Change a user's status to SAFE\n"
