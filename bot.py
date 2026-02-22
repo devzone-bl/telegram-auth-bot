@@ -38,16 +38,23 @@ logger = logging.getLogger(__name__)
 
 # ---------- HELPER FUNCTIONS ----------
 def write_to_files(mac: str, username: str, status: str):
-    """Append MAC to KEYS.txt and username with status to USERS.txt."""
+    """
+    Appends the MAC to KEYS.txt and the username/status to USERS.txt.
+    Each entry is forced onto a new line to keep both files synced.
+    """
     try:
+        # 1. Handle KEYS.txt (Only the MAC/HWID)
         with open(KEYS_FILE, "a") as f:
+            # strip() removes accidental whitespace, \n ensures a new line
             f.write(mac.strip() + "\n")
+            
+        # 2. Handle USERS.txt (The Username and their Status)
         with open(USERS_FILE, "a") as f:
             f.write(f"{username.strip()} -> {status}\n")
-        logger.info(f"Written: {mac} / {username} -> {status}")
+            
+        logger.info(f"Sync Success: {mac} saved to KEYS, {username} saved to USERS.")
     except Exception as e:
         logger.error(f"File write error: {e}")
-
 # ---------- CONVERSATION HANDLERS ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(
