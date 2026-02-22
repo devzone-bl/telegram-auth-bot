@@ -131,10 +131,9 @@ async def process_allow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 # ---------- CONVERSATION HANDLERS ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(
-        "Please send me the MAC address and username.\n"
-        "You can send them in one message separated by space or newline.\n"
-        "Example: `AA:BB:CC:DD:EE:FF JohnDoe`\n"
-        "Or send /cancel to abort."
+        "Send Me The KEY And Username.\n"
+        "Example: 5ECE84D8ACB3392FD1CC274D183151D5F79FF5DE902E389AA7130B3588059BFB FaveloXx\n"
+        "Or Click /cancel to Abort the Request."
     )
     return WAITING_FOR_MAC_USERNAME
 
@@ -142,7 +141,7 @@ async def receive_mac_username(update: Update, context: ContextTypes.DEFAULT_TYP
         text = update.message.text.strip()
         parts = text.split()
         if len(parts) < 2:
-            await update.message.reply_text("I need both! Format: [HWID] [Username]") 
+            await update.message.reply_text("Correct Format: [KEY] [Username]") 
             return WAITING_FOR_MAC_USERNAME
 
         mac = parts[0]
@@ -153,8 +152,8 @@ async def receive_mac_username(update: Update, context: ContextTypes.DEFAULT_TYP
         # Create inline keyboard
         keyboard = [
             [
-                InlineKeyboardButton("✅ Approve", callback_data="approve"),
-                InlineKeyboardButton("❌ Deny", callback_data="deny"),
+                InlineKeyboardButton("✅ GRANT", callback_data="approve"),
+                InlineKeyboardButton("❌ DENY", callback_data="deny"),
             ],
             [
                 InlineKeyboardButton("🚫 Ban", callback_data="ban"),
@@ -244,15 +243,25 @@ async def list_approved(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error in list_approved: {e}")
         await update.message.reply_text("Error reading users file.")
-
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    help_text = (
+        "🤖 **Available Commands:**\n\n"
+        "🔹 `/begin` - Add a new Key and Username\n"
+        "🔹 `/ban` - Change a user's status to BAN\n"
+        "🔹 `/grant` - Change a user's status to SAFE\n"
+        "🔹 `/list` - Show all registered users\n"
+        "🔹 `/cancel` - Stop any active operation\n"
+        "🔹 `/help` - Show this menu"
+    )
+    await update.message.reply_text(help_text, parse_mode="Markdown")
 # ---------- BUILD APPLICATION ----------
 application = Application.builder().token(BOT_TOKEN).build()
 
 conv_handler = ConversationHandler(
     entry_points=[
-        CommandHandler("start", start),
+        CommandHandler("begin", start),
         CommandHandler("ban", ban_start),
-        CommandHandler("allow", allow_start) # Added this for you
+        CommandHandler("grant", allow_start) # Added this for you
     ],
     states={
         WAITING_FOR_MAC_USERNAME: [
@@ -273,7 +282,7 @@ conv_handler = ConversationHandler(
 )
 application.add_handler(conv_handler)
 application.add_handler(CommandHandler("list", list_approved))
-
+application.add_handler(CommandHandler("help", help_command))
 # ---------- ASYNC LOOP IN BACKGROUND ----------
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
