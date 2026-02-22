@@ -15,6 +15,9 @@ BANNED_FILE = "banned.txt"
 
 # Flask app for health checks
 app = Flask(__name__)
+@app.route('/')
+def home():
+    return "Bot is running", 200
 
 # Logging
 logging.basicConfig(
