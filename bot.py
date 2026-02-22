@@ -59,7 +59,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return WAITING_FOR_MAC_USERNAME
 
 async def receive_mac_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    try:
         text = update.message.text.strip()
         parts = text.split()
         if len(parts) < 2:
@@ -67,10 +66,10 @@ async def receive_mac_username(update: Update, context: ContextTypes.DEFAULT_TYP
             return WAITING_FOR_MAC_USERNAME
 
         mac = parts[0]
-    username = " ".join(parts[1:]) 
+        username = " ".join(parts[1:]) 
     
-    context.user_data["mac"] = mac
-    context.user_data["username"] = username
+        context.user_data["mac"] = mac
+        context.user_data["username"] = username
         # Create inline keyboard
         keyboard = [
             [
@@ -90,10 +89,6 @@ async def receive_mac_username(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         logger.info(f"Received MAC/Username from {update.effective_user.id}: {mac} / {username}")
         return WAITING_FOR_MAC_USERNAME  # stay to wait for button click
-    except Exception as e:
-        logger.error(f"Error in receive_mac_username: {e}\n{traceback.format_exc()}")
-        await update.message.reply_text("An internal error occurred. Please try again with /start.")
-        return ConversationHandler.END
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
