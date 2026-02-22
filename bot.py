@@ -178,7 +178,8 @@ conv_handler = ConversationHandler(
         WAITING_FOR_EXEC_USERS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_exec_users)],
         WAITING_FOR_EXEC_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_exec_final)],
     },
-    fallbacks=[CommandHandler("cancel", lambda u,c: ConversationHandler.END)],
+    fallbacks=[CommandHandler("cancel") ConversationHandler.END)],
+
 )
 application.add_handler(conv_handler)
 
