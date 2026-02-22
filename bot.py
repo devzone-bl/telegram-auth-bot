@@ -57,7 +57,6 @@ def write_to_files(mac: str, username: str, status: str):
     except Exception as e:
         logger.error(f"File write error: {e}")
 
-# 3. New Ban Command Logic
 async def ban_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("Please send the exact Username you want to ban:")
     return WAITING_FOR_BAN_TARGET
@@ -92,7 +91,16 @@ async def process_ban(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     else:
         await update.message.reply_text(f"❓ Could not find user '{target_user}'. Check the spelling and try again.")
     
-    return ConversationHandler.END
+    return ConversationHandler.END        
+# ---------- CONVERSATION HANDLERS ----------
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await update.message.reply_text(
+        "Please send me the MAC address and username.\n"
+        "You can send them in one message separated by space or newline.\n"
+        "Example: `AA:BB:CC:DD:EE:FF JohnDoe`\n"
+        "Or send /cancel to abort."
+    )
+    return WAITING_FOR_MAC_USERNAME
 
 async def receive_mac_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         text = update.message.text.strip()
