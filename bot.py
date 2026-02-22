@@ -128,7 +128,21 @@ def health():
 @app.route('/')
 def home():
     return "Bot is running", 200
+@app.route('/approved.txt')
+def get_approved():
+    try:
+        with open(APPROVED_FILE, 'r') as f:
+            return f.read(), 200, {'Content-Type': 'text/plain'}
+    except FileNotFoundError:
+        return "", 200, {'Content-Type': 'text/plain'}
 
+@app.route('/banned.txt')
+def get_banned():
+    try:
+        with open(BANNED_FILE, 'r') as f:
+            return f.read(), 200, {'Content-Type': 'text/plain'}
+    except FileNotFoundError:
+        return "", 200, {'Content-Type': 'text/plain'}
 # ---------- START FLASK ----------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
