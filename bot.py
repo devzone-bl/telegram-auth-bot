@@ -61,18 +61,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def receive_mac_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
         text = update.message.text.strip()
-        parts = text.split()
-        if len(parts) < 2:
-            await update.message.reply_text(
-                "Please provide both MAC address and username.\n"
-                "Example: `AA:BB:CC:DD:EE:FF JohnDoe`"
-            )
-            return WAITING_FOR_MAC_USERNAME
+    parts = text.split()
+    
+    if len(parts) < 2:
+        await update.message.reply_text("I need both! Format: [HWID] [Username]")
+        return WAITING_FOR_MAC_USERNAME
 
-        mac, username = parts[0], parts[1]
-        context.user_data["mac"] = mac
-        context.user_data["username"] = username
-
+    # Join everything after the first part as the username 
+    # (in case the username has spaces)
+    mac = parts[0]
+    username = " ".join(parts[1:]) 
+    
+    context.user_data["mac"] = mac
+    context.user_data["username"] = username
         # Create inline keyboard
         keyboard = [
             [
