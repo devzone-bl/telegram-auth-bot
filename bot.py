@@ -1,6 +1,7 @@
 import logging
 import os
 import threading
+import asyncio
 from flask import Flask
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler
 
@@ -97,6 +98,9 @@ def health():
 # ---------- BACKGROUND THREAD FOR POLLING ----------
 def run_bot():
     """Start the bot in polling mode (blocking)."""
+    # Create a new event loop for this thread
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     application.run_polling()
 
 # Start bot in a daemon thread so it exits when Flask stops
