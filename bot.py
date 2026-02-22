@@ -24,7 +24,14 @@ KEYS_FILE = "KEYS.txt"
 USERS_FILE = "USERS.txt"
 
 # Conversation states
-WAITING_FOR_MAC_USERNAME, WAITING_FOR_CUSTOM_STATUS, WAITING_FOR_BAN_TARGET, WAITING_FOR_ALLOW_TARGET = range(4)
+(
+    MENU_HUB,
+    WAITING_FOR_REG,
+    WAITING_FOR_GRANT,
+    WAITING_FOR_BAN,
+    WAITING_FOR_EXEC_USERS,
+    WAITING_FOR_EXEC_TEXT
+) = range(6)
 
 # Flask app
 app = Flask(__name__)
@@ -36,11 +43,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ---------- HELPER FUNCTIONS ----------
+# ---------- CORE HELPER FUNCTIONS ----------
+
 def write_to_files(mac: str, username: str, status: str):
+    """Handles initial registration logic."""
     try:
         for filename, content in [(KEYS_FILE, mac.strip()), (USERS_FILE, f"{username.strip()} -> {status}")]:
-            # Check if file exists and if it ends with a newline
             file_exists = os.path.isfile(filename)
             needs_newline = False
             if file_exists and os.path.getsize(filename) > 0:
@@ -53,252 +61,188 @@ def write_to_files(mac: str, username: str, status: str):
                 if needs_newline:
                     f.write("\n")
                 f.write(content + "\n")
-        logger.info(f"Successfully synced: {username}")
     except Exception as e:
         logger.error(f"File write error: {e}")
 
-async def ban_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("Please send the exact Username you want to ban:")
-    return WAITING_FOR_BAN_TARGET
-
-async def process_ban(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    target_user = update.message.text.strip()
-    found = False
-    new_lines = []
-
+def batch_update_users(target_input: str, new_status_base: str, extra_text: str = ""):
+    """Updates multiple users at once. Support for Grant, Ban, and Execute."""
     if not os.path.exists(USERS_FILE):
-        await update.message.reply_text("User file doesn't exist yet.")
-        return ConversationHandler.END
+        return 0, []
+
+    # Split input by spaces to support multi-selection
+    targets = [u.strip() for u in target_input.split() if u.strip()]
+    updated_users = []
+    new_lines = []
 
     with open(USERS_FILE, "r") as f:
         lines = f.readlines()
 
     for line in lines:
         if " -> " in line:
-            name_part = line.split(" -> ")[0].strip()
-            if name_part == target_user:
-                new_lines.append(f"{name_part} -> BAN\n")
-                found = True
+            username_part = line.split(" -> ")[0].strip()
+            if username_part in targets:
+                # Format: Username -> SAFE/BAN [optional extra text]
+                status_str = f"{new_status_base} {extra_text}".strip()
+                new_lines.append(f"{username_part} -> {status_str}\n")
+                updated_users.append(username_part)
             else:
                 new_lines.append(line)
         else:
             new_lines.append(line)
 
-    if found:
-        with open(USERS_FILE, "w") as f:
-            f.writelines(new_lines)
-        await update.message.reply_text(f"🚫 User '{target_user}' has been set to BAN status.")
-    else:
-        await update.message.reply_text(f"❓ Could not find user '{target_user}'. Check the spelling and try again.")
+    with open(USERS_FILE, "w") as f:
+        f.writelines(new_lines)
     
-    return ConversationHandler.END
-# 3. The "Allow" Command (To re-enable a user)
-async def allow_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("Please send the Username to set as SAFE:")
-    return WAITING_FOR_ALLOW_TARGET
+    return len(updated_users), updated_users
 
-async def process_allow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    target_user = update.message.text.strip()
-    found = False
-    new_lines = []
+# ---------- UI COMPONENTS ----------
 
-    if not os.path.exists(USERS_FILE):
-        await update.message.reply_text("File not found.")
-        return ConversationHandler.END
+def main_menu_keyboard():
+    keyboard = [
+        [
+            InlineKeyboardButton("📝 Register", callback_data="m_reg"),
+            InlineKeyboardButton("✅ Grant", callback_data="m_grant")
+        ],
+        [
+            InlineKeyboardButton("🚫 Ban", callback_data="m_ban"),
+            InlineKeyboardButton("📋 List", callback_data="m_list")
+        ],
+        [
+            InlineKeyboardButton("⚡ Execute", callback_data="m_exec"),
+            InlineKeyboardButton("ℹ️ Help", callback_data="m_help")
+        ],
+        [InlineKeyboardButton("✖️ Close Menu", callback_data="m_cancel")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
-    with open(USERS_FILE, "r") as f:
-        lines = f.readlines()
-
-    for line in lines:
-        if " -> " in line:
-            name_part = line.split(" -> ")[0].strip()
-            if name_part == target_user:
-                new_lines.append(f"{name_part} -> SAFE\n")
-                found = True
-            else:
-                new_lines.append(line)
-        else:
-            new_lines.append(line)
-
-    if found:
-        with open(USERS_FILE, "w") as f:
-            f.writelines(new_lines)
-        await update.message.reply_text(f"✅ User '{target_user}' is now SAFE.")
-    else:
-        await update.message.reply_text("User not found.")
-    
-    return ConversationHandler.END
 # ---------- CONVERSATION HANDLERS ----------
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text(
-        "🤖 **Welcome To FaveloXx / Ahmed Authonticator Bot **\n\n"
-        "Send Me The KEY And Username.\n"
-        "Example: 5ECE84D8ACB3392FD1CC274D183151D5F79FF5DE902E389AA7130B3588059BFB USERNAME\n"
-        "Or Click /cancel to Abort the Request."
+    text = (
+        "✨ **Welcome Administrator**\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "System is online. Please choose an operation:"
     )
-    return WAITING_FOR_MAC_USERNAME
+    if update.message:
+        await update.message.reply_text(text, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+    else:
+        await update.callback_query.edit_message_text(text, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+    return MENU_HUB
 
-async def receive_mac_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        text = update.message.text.strip()
-        parts = text.split()
-        if len(parts) < 2:
-            await update.message.reply_text("Correct Format: [KEY] [Username]") 
-            return WAITING_FOR_MAC_USERNAME
-
-        mac = parts[0]
-        username = " ".join(parts[1:]) 
-    
-        context.user_data["mac"] = mac
-        context.user_data["username"] = username
-        # Create inline keyboard
-        keyboard = [
-            [
-                InlineKeyboardButton("✅ GRANT", callback_data="approve"),
-                InlineKeyboardButton("❌ DENY", callback_data="deny"),
-            ],
-            [
-                InlineKeyboardButton("🚫 Ban", callback_data="ban"),
-                InlineKeyboardButton("🔄 Other", callback_data="other"),
-            ],
-            [InlineKeyboardButton("❎ Cancel", callback_data="cancel")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            f"MAC: {mac}\nUsername: {username}\n\nChoose an action:",
-            reply_markup=reply_markup,
-        )
-        logger.info(f"Received MAC/Username from {update.effective_user.id}: {mac} / {username}")
-        return WAITING_FOR_MAC_USERNAME  # stay to wait for button click
-
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    action = query.data
+    choice = query.data
 
-    mac = context.user_data.get("mac")
-    username = context.user_data.get("username")
-    if not mac or not username:
-        await query.edit_message_text("Error: missing data. Please start over with /start.")
+    if choice == "m_reg":
+        await query.edit_message_text("📝 **Registration Mode**\nSend the `KEY` and `USERNAME` separated by space:", parse_mode="Markdown")
+        return WAITING_FOR_REG
+    
+    elif choice == "m_grant":
+        await query.edit_message_text("✅ **Grant Status (SAFE)**\nSend the Username(s) to authorize (space separated):", parse_mode="Markdown")
+        return WAITING_FOR_GRANT
+
+    elif choice == "m_ban":
+        await query.edit_message_text("🚫 **Ban Status (BAN)**\nSend the Username(s) to restrict (space separated):", parse_mode="Markdown")
+        return WAITING_FOR_BAN
+
+    elif choice == "m_exec":
+        await query.edit_message_text("⚡ **Execute Command**\nStep 1: Send the target Username(s):", parse_mode="Markdown")
+        return WAITING_FOR_EXEC_USERS
+
+    elif choice == "m_list":
+        try:
+            with open(USERS_FILE, "r") as f:
+                content = f.read().strip()
+            msg = f"📋 **User Database**\n```\n{content if content else 'No users found.'}\n```"
+        except FileNotFoundError:
+            msg = "❌ Error: `USERS.txt` not found."
+        await query.edit_message_text(msg, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+        return MENU_HUB
+
+    elif choice == "m_help":
+        help_txt = (
+            "🚀 **Command Reference**\n\n"
+            "• **Register**: Adds new Key + User.\n"
+            "• **Grant**: Sets users to `SAFE` status.\n"
+            "• **Ban**: Sets users to `BAN` status.\n"
+            "• **Execute**: Appends custom text to `SAFE` status.\n"
+            "• **Multi-Select**: Send multiple names (e.g. `User1 User2`) to update all at once."
+        )
+        await query.edit_message_text(help_txt, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+        return MENU_HUB
+
+    elif choice == "m_cancel":
+        await query.edit_message_text("💤 Session closed. Use `/begin` to restart.")
         return ConversationHandler.END
 
-    try:
-        if action == "approve":
-            write_to_files(mac, username, "SAFE")
-            await query.edit_message_text(f"✅ Approved {username} with MAC {mac}")
-        elif action == "deny":
-            write_to_files(mac, username, "DELETE")
-            await query.edit_message_text(f"❌ Denied {username} with MAC {mac}")
-        elif action == "ban":
-            write_to_files(mac, username, "BAN")
-            await query.edit_message_text(f"🚫 Banned {username} with MAC {mac}")
-        elif action == "other":
-            await query.edit_message_text(
-                "Please send the custom status you want to assign to this user.\n"
-                "Example: `VIP` or `TRIAL`\n"
-                "Send /cancel to abort."
-            )
-            return WAITING_FOR_CUSTOM_STATUS
-        elif action == "cancel":
-            await query.edit_message_text("Operation cancelled.")
-        else:
-            await query.edit_message_text("Unknown action.")
-        return ConversationHandler.END
-    except Exception as e:
-        logger.error(f"Error in button_callback: {e}\n{traceback.format_exc()}")
-        await query.edit_message_text("An error occurred. Please try again.")
-        return ConversationHandler.END
+async def handle_registration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    parts = update.message.text.split()
+    if len(parts) < 2:
+        await update.message.reply_text("❌ **Format Error!** Send: `[KEY] [USERNAME]`")
+        return WAITING_FOR_REG
+    
+    mac, username = parts[0], " ".join(parts[1:])
+    write_to_files(mac, username, "SAFE")
+    await update.message.reply_text(f"✅ Registered `{username}` successfully!", parse_mode="Markdown")
+    return await start(update, context)
 
-async def receive_custom_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    try:
-        custom_status = update.message.text.strip()
-        mac = context.user_data.get("mac")
-        username = context.user_data.get("username")
-        if not mac or not username:
-            await update.message.reply_text("Error: missing data. Please start over with /start.")
-            return ConversationHandler.END
+async def handle_grant(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    count, names = batch_update_users(update.message.text, "SAFE")
+    await update.message.reply_text(f"✅ **Success!** {count} users updated to SAFE: `{', '.join(names)}`", parse_mode="Markdown")
+    return await start(update, context)
 
-        write_to_files(mac, username, custom_status)
-        await update.message.reply_text(f"✅ {username} with MAC {mac} set to '{custom_status}'")
-        logger.info(f"Custom status for {username}: {custom_status}")
-        return ConversationHandler.END
-    except Exception as e:
-        logger.error(f"Error in receive_custom_status: {e}\n{traceback.format_exc()}")
-        await update.message.reply_text("An error occurred. Please try again.")
-        return ConversationHandler.END
+async def handle_ban(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    count, names = batch_update_users(update.message.text, "BAN")
+    await update.message.reply_text(f"🚫 **Banned!** {count} users set to BAN: `{', '.join(names)}`", parse_mode="Markdown")
+    return await start(update, context)
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def handle_exec_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data["exec_targets"] = update.message.text
+    await update.message.reply_text("📝 **Step 2:** Send the custom text to append (e.g. `hy faveloxx`):")
+    return WAITING_FOR_EXEC_TEXT
+
+async def handle_exec_final(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    custom_text = update.message.text
+    targets = context.user_data.get("exec_targets", "")
+    count, names = batch_update_users(targets, "SAFE", custom_text)
+    await update.message.reply_text(f"⚡ **Execution Complete!** Modified {count} users.", parse_mode="Markdown")
+    return await start(update, context)
+
+async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("Operation cancelled.")
     return ConversationHandler.END
 
-# ---------- NON‑CONVERSATION COMMANDS ----------
-async def list_approved(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        with open(USERS_FILE, "r") as f:
-            users = f.read().strip()
-        if users:
-            await update.message.reply_text(f"📋 Registered users:\n{users}")
-        else:
-            await update.message.reply_text("No users registered yet.")
-    except FileNotFoundError:
-        await update.message.reply_text("No users registered yet.")
-    except Exception as e:
-        logger.error(f"Error in list_approved: {e}")
-        await update.message.reply_text("Error reading users file.")
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    help_text = (
-        "</> **WELCOME FaveloXx / Ahmed**\n\n"
-        "🤖 **The Commands Options :**\n\n"
-        "🔹 `/begin` - Add a new Key and Username\n"
-        "🔹 `/ban` - Change a user's status to BAN\n"
-        "🔹 `/grant` - Change a user's status to SAFE\n"
-        "🔹 `/list` - Show all registered users\n"
-        "🔹 `/cancel` - Stop any active operation\n"
-        "🔹 `/help` - Show this menu"
-    )
-    await update.message.reply_text(help_text, parse_mode="Markdown")
-# ---------- BUILD APPLICATION ----------
+# ---------- APPLICATION SETUP ----------
+
 application = Application.builder().token(BOT_TOKEN).build()
 
 conv_handler = ConversationHandler(
-    entry_points=[
-        CommandHandler("begin", start),
-        CommandHandler("ban", ban_start),
-        CommandHandler("grant", allow_start) # Added this for you
-    ],
+    entry_points=[CommandHandler("begin", start), CommandHandler("start", start)],
     states={
-        WAITING_FOR_MAC_USERNAME: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, receive_mac_username),
-            CallbackQueryHandler(button_callback),
-        ],
-        WAITING_FOR_CUSTOM_STATUS: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, receive_custom_status),
-        ],
-        WAITING_FOR_BAN_TARGET: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, process_ban),
-        ],
-        WAITING_FOR_ALLOW_TARGET: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, process_allow),
-        ],
+        MENU_HUB: [CallbackQueryHandler(menu_callback)],
+        WAITING_FOR_REG: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_registration)],
+        WAITING_FOR_GRANT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_grant)],
+        WAITING_FOR_BAN: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ban)],
+        WAITING_FOR_EXEC_USERS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_exec_users)],
+        WAITING_FOR_EXEC_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_exec_final)],
     },
-    fallbacks=[CommandHandler("cancel", cancel)],
+    fallbacks=[CommandHandler("cancel", cancel_cmd)],
 )
+
 application.add_handler(conv_handler)
-application.add_handler(CommandHandler("list", list_approved))
-application.add_handler(CommandHandler("help", help_command))
-# ---------- ASYNC LOOP IN BACKGROUND ----------
+
+# ---------- ASYNC / FLASK INTEGRATION ----------
+
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
 async def init_app():
     await application.initialize()
-    # Set webhook using public domain from environment (e.g., Railway)
     public_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
     if public_domain:
         webhook_url = f"https://{public_domain}/webhook"
         await application.bot.set_webhook(url=webhook_url)
-        logger.info(f"Webhook set to {webhook_url}")
-    else:
-        logger.warning("RAILWAY_PUBLIC_DOMAIN not set; webhook not configured.")
 
 loop.create_task(init_app())
 
@@ -308,44 +252,21 @@ def run_loop():
 
 threading.Thread(target=run_loop, daemon=True).start()
 
-# ---------- FLASK WEBHOOK ENDPOINT ----------
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    if request.method == 'POST':
-        try:
-            update = Update.de_json(request.get_json(force=True), application.bot)
-            asyncio.run_coroutine_threadsafe(application.process_update(update), loop)
-            logger.info("Update processed")
-        except Exception as e:
-            logger.error(f"Webhook error: {e}")
-        return "OK", 200
-    return "Method Not Allowed", 405
-
-@app.route('/health', methods=['GET'])
-def health():
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    asyncio.run_coroutine_threadsafe(application.process_update(update), loop)
     return "OK", 200
 
-@app.route('/')
-def home():
-    return "Bot is running", 200
-
-@app.route('/KEYS.txt')
-def get_keys():
-    try:
-        with open(KEYS_FILE, 'r') as f:
-            return f.read(), 200, {'Content-Type': 'text/plain'}
-    except FileNotFoundError:
-        return "", 200, {'Content-Type': 'text/plain'}
+@app.route('/health')
+def health(): return "OK", 200
 
 @app.route('/USERS.txt')
 def get_users():
     try:
-        with open(USERS_FILE, 'r') as f:
-            return f.read(), 200, {'Content-Type': 'text/plain'}
-    except FileNotFoundError:
-        return "", 200, {'Content-Type': 'text/plain'}
+        with open(USERS_FILE, 'r') as f: return f.read(), 200, {'Content-Type': 'text/plain'}
+    except: return "", 200
 
-# ---------- START FLASK ----------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
