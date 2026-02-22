@@ -22,7 +22,7 @@ if not BOT_TOKEN:
 KEYS_FILE = "KEYS.txt"
 USERS_FILE = "USERS.txt"
 
-# Conversation states
+# Added RENAME states
 (
     MENU_HUB,
     WAITING_FOR_REG,
@@ -30,14 +30,45 @@ USERS_FILE = "USERS.txt"
     WAITING_FOR_BAN,
     WAITING_FOR_EXEC_USERS,
     WAITING_FOR_EXEC_TEXT,
-    WAITING_FOR_DELETE
-) = range(7)
+    WAITING_FOR_DELETE,
+    WAITING_FOR_RENAME_OLD,
+    WAITING_FOR_RENAME_NEW
+) = range(9)
 
 app = Flask(__name__)
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ---------- CORE HELPER FUNCTIONS ----------
+
+def rename_user_sync(old_name: str, new_name: str):
+    """Updates the username in USERS.txt while keeping the status and line index intact."""
+    if not os.path.exists(USERS_FILE): return False
+    
+    updated = False
+    new_lines = []
+    
+    with open(USERS_FILE, "r") as f:
+        lines = f.readlines()
+        
+    for line in lines:
+        if " -> " in line:
+            parts = line.split(" -> ")
+            current_name = parts[0].strip()
+            status = parts[1].strip()
+            
+            if current_name == old_name.strip():
+                new_lines.append(f"{new_name.strip()} -> {status}\n")
+                updated = True
+            else:
+                new_lines.append(line)
+        else:
+            new_lines.append(line)
+            
+    if updated:
+        with open(USERS_FILE, "w") as f:
+            f.writelines(new_lines)
+    return updated
 
 def write_to_files(mac: str, username: str, status: str):
     try:
@@ -97,13 +128,13 @@ def main_menu_keyboard():
     keyboard = [
         [InlineKeyboardButton("📝 Register", callback_data="m_reg"), InlineKeyboardButton("✅ Grant", callback_data="m_grant")],
         [InlineKeyboardButton("🚫 Ban", callback_data="m_ban"), InlineKeyboardButton("🗑️ Delete", callback_data="m_del")],
-        [InlineKeyboardButton("⚡ Execute", callback_data="m_exec"), InlineKeyboardButton("📋 List", callback_data="m_list")],
-        [InlineKeyboardButton("ℹ️ Help", callback_data="m_help"), InlineKeyboardButton("✖️ Close", callback_data="m_cancel")]
+        [InlineKeyboardButton("✏️ Rename", callback_data="m_rename"), InlineKeyboardButton("⚡ Execute", callback_data="m_exec")],
+        [InlineKeyboardButton("📋 List", callback_data="m_list"), InlineKeyboardButton("ℹ️ Help", callback_data="m_help")],
+        [InlineKeyboardButton("✖️ Close Session", callback_data="m_cancel")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 def cancel_keyboard():
-    """Shared keyboard for all waiting states to allow cancellation."""
     return InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel Operation", callback_data="m_stop")]])
 
 # ---------- CONVERSATION HANDLERS ----------
@@ -111,7 +142,6 @@ def cancel_keyboard():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     text = "✨ **System Hub Online**\n━━━━━━━━━━━━━━\nSelect administrative action:"
     reply_markup = main_menu_keyboard()
-    
     if update.callback_query:
         await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode="Markdown")
     else:
@@ -123,9 +153,8 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     await query.answer()
     c = query.data
 
-    # Handle the cancel button within states
     if c == "m_stop":
-        await query.edit_message_text("❌ **Action Cancelled.**\nReturning to menu...")
+        await query.edit_message_text("❌ **Action Cancelled.**")
         return await start(update, context)
 
     if c == "m_reg": 
@@ -143,6 +172,10 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     if c == "m_del": 
         await query.edit_message_text("🗑️ **Sync Delete**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard())
         return WAITING_FOR_DELETE
+
+    if c == "m_rename":
+        await query.edit_message_text("✏️ **Rename User**\nStep 1: Send the **current** username:", parse_mode="Markdown", reply_markup=cancel_keyboard())
+        return WAITING_FOR_RENAME_OLD
     
     if c == "m_exec": 
         await query.edit_message_text("⚡ **Execute**\nStep 1: Send Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard())
@@ -157,7 +190,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return MENU_HUB
 
     if c == "m_help":
-        help_text = "🚀 **Help**\nDelete : Sync removal\nRegister : Add user\nBan : Block user\nExecute : Append command"
+        help_text = "🚀 **Help**\nRename: Change a user's name\nDelete: Sync removal\nRegister: Add user\nBan: Block user"
         await query.edit_message_text(help_text, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
         return MENU_HUB
 
@@ -169,10 +202,26 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 async def handle_registration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     parts = update.message.text.split()
     if len(parts) < 2: 
-        await update.message.reply_text("⚠️ Invalid format. Send `KEY USERNAME` or click cancel:", reply_markup=cancel_keyboard())
+        await update.message.reply_text("⚠️ Use: `KEY USERNAME`", reply_markup=cancel_keyboard())
         return WAITING_FOR_REG
     write_to_files(parts[0], " ".join(parts[1:]), "SAFE")
     await update.message.reply_text(f"✅ Registered `{parts[1]}`")
+    return await start(update, context)
+
+async def handle_rename_old(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data["rename_old"] = update.message.text.strip()
+    await update.message.reply_text(f"✏️ Target: `{update.message.text}`\nStep 2: Send the **NEW** username:", parse_mode="Markdown", reply_markup=cancel_keyboard())
+    return WAITING_FOR_RENAME_NEW
+
+async def handle_rename_new(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    old_name = context.user_data.get("rename_old")
+    new_name = update.message.text.strip()
+    
+    if rename_user_sync(old_name, new_name):
+        await update.message.reply_text(f"✅ Renamed `{old_name}` to `{new_name}`")
+    else:
+        await update.message.reply_text(f"❌ Could not find user `{old_name}`.")
+    
     return await start(update, context)
 
 async def handle_grant(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -187,7 +236,7 @@ async def handle_ban(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def handle_delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     count = delete_sync_users(update.message.text)
-    await update.message.reply_text(f"🗑️ Deleted {count} users and their keys.")
+    await update.message.reply_text(f"🗑️ Deleted {count} users.")
     return await start(update, context)
 
 async def handle_exec_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -200,18 +249,9 @@ async def handle_exec_final(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     await update.message.reply_text(f"⚡ Modified {count} users.")
     return await start(update, context)
 
-async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    msg = "❌ **Action Cancelled.**"
-    if update.callback_query: await update.callback_query.edit_message_text(msg)
-    else: await update.message.reply_text(msg)
-    context.user_data.clear()
-    return await start(update, context)
-
 # ---------- APP SETUP ----------
 application = Application.builder().token(BOT_TOKEN).build()
 
-# The CallbackQueryHandler(menu_callback) is added to EVERY state 
-# so the 'm_stop' (Cancel) button works everywhere.
 conv_handler = ConversationHandler(
     entry_points=[CommandHandler("start", start), CommandHandler("begin", start)],
     states={
@@ -220,10 +260,12 @@ conv_handler = ConversationHandler(
         WAITING_FOR_GRANT: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_grant)],
         WAITING_FOR_BAN: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ban)],
         WAITING_FOR_DELETE: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_delete)],
+        WAITING_FOR_RENAME_OLD: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_rename_old)],
+        WAITING_FOR_RENAME_NEW: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_rename_new)],
         WAITING_FOR_EXEC_USERS: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_exec_users)],
         WAITING_FOR_EXEC_TEXT: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_exec_final)],
     },
-    fallbacks=[CommandHandler("cancel", cancel_command), CallbackQueryHandler(menu_callback, pattern="^m_stop$")],
+    fallbacks=[CallbackQueryHandler(menu_callback, pattern="^m_stop$")],
 )
 application.add_handler(conv_handler)
 
@@ -234,8 +276,7 @@ asyncio.set_event_loop(loop)
 async def init_app():
     await application.initialize()
     domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
-    if domain:
-        await application.bot.set_webhook(url=f"https://{domain}/webhook")
+    if domain: await application.bot.set_webhook(url=f"https://{domain}/webhook")
 
 loop.create_task(init_app())
 
