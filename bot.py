@@ -24,7 +24,7 @@ KEYS_FILE = "KEYS.txt"
 USERS_FILE = "USERS.txt"
 
 # Conversation states
-WAITING_FOR_MAC_USERNAME, WAITING_FOR_CUSTOM_STATUS = range(2)
+WAITING_FOR_MAC_USERNAME, WAITING_FOR_CUSTOM_STATUS, WAITING_FOR_BAN_TARGET = range(3)
 
 # Flask app
 app = Flask(__name__)
@@ -38,32 +38,61 @@ logger = logging.getLogger(__name__)
 
 # ---------- HELPER FUNCTIONS ----------
 def write_to_files(mac: str, username: str, status: str):
-    """
-    Appends the MAC to KEYS.txt and the username/status to USERS.txt.
-    Each entry is forced onto a new line to keep both files synced.
-    """
     try:
-        # 1. Handle KEYS.txt (Only the MAC/HWID)
-        with open(KEYS_FILE, "a") as f:
-            # strip() removes accidental whitespace, \n ensures a new line
-            f.write(mac.strip() + "\n")
+        for filename, content in [(KEYS_FILE, mac.strip()), (USERS_FILE, f"{username.strip()} -> {status}")]:
+            # Check if file exists and if it ends with a newline
+            file_exists = os.path.isfile(filename)
+            needs_newline = False
+            if file_exists and os.path.getsize(filename) > 0:
+                with open(filename, "rb+") as f:
+                    f.seek(-1, 2)
+                    if f.read(1) != b'\n':
+                        needs_newline = True
             
-        # 2. Handle USERS.txt (The Username and their Status)
-        with open(USERS_FILE, "a") as f:
-            f.write(f"{username.strip()} -> {status}\n")
-            
-        logger.info(f"Sync Success: {mac} saved to KEYS, {username} saved to USERS.")
+            with open(filename, "a") as f:
+                if needs_newline:
+                    f.write("\n")
+                f.write(content + "\n")
+        logger.info(f"Successfully synced: {username}")
     except Exception as e:
         logger.error(f"File write error: {e}")
-# ---------- CONVERSATION HANDLERS ----------
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text(
-        "Please send me the MAC address and username.\n"
-        "You can send them in one message separated by space or newline.\n"
-        "Example: `AA:BB:CC:DD:EE:FF JohnDoe`\n"
-        "Or send /cancel to abort."
-    )
-    return WAITING_FOR_MAC_USERNAME
+
+# 3. New Ban Command Logic
+async def ban_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await update.message.reply_text("Please send the exact Username you want to ban:")
+    return WAITING_FOR_BAN_TARGET
+
+async def process_ban(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    target_user = update.message.text.strip()
+    found = False
+    new_lines = []
+
+    if not os.path.exists(USERS_FILE):
+        await update.message.reply_text("User file doesn't exist yet.")
+        return ConversationHandler.END
+
+    with open(USERS_FILE, "r") as f:
+        lines = f.readlines()
+
+    for line in lines:
+        if " -> " in line:
+            name_part = line.split(" -> ")[0].strip()
+            if name_part == target_user:
+                new_lines.append(f"{name_part} -> BAN\n")
+                found = True
+            else:
+                new_lines.append(line)
+        else:
+            new_lines.append(line)
+
+    if found:
+        with open(USERS_FILE, "w") as f:
+            f.writelines(new_lines)
+        await update.message.reply_text(f"🚫 User '{target_user}' has been set to BAN status.")
+    else:
+        await update.message.reply_text(f"❓ Could not find user '{target_user}'. Check the spelling and try again.")
+    
+    return ConversationHandler.END
 
 async def receive_mac_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         text = update.message.text.strip()
@@ -176,15 +205,20 @@ async def list_approved(update: Update, context: ContextTypes.DEFAULT_TYPE):
 application = Application.builder().token(BOT_TOKEN).build()
 
 conv_handler = ConversationHandler(
-    entry_points=[CommandHandler("start", start)],
+    entry_points=[
+        CommandHandler("start", start),
+        CommandHandler("ban", ban_start) # Entry for banning
+    ],
     states={
         WAITING_FOR_MAC_USERNAME: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, receive_mac_username),
-            CallbackQueryHandler(button_callback),  # for button presses
+            CallbackQueryHandler(button_callback),
         ],
         WAITING_FOR_CUSTOM_STATUS: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, receive_custom_status),
-            CallbackQueryHandler(button_callback),  # in case user clicks again
+        ],
+        WAITING_FOR_BAN_TARGET: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, process_ban),
         ],
     },
     fallbacks=[CommandHandler("cancel", cancel)],
