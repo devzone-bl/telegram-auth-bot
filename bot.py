@@ -160,18 +160,22 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 # ---------- NON‑CONVERSATION COMMANDS ----------
 async def list_approved(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        with open(USERS_FILE, "r") as f:
-            users = f.read().strip()
-        if users:
-            await update.message.reply_text(f"📋 Registered users:\n{users}")
-        else:
+        if not os.path.exists(USERS_FILE) or not os.path.exists(KEYS_FILE):
             await update.message.reply_text("No users registered yet.")
-    except FileNotFoundError:
-        await update.message.reply_text("No users registered yet.")
+            return
+
+        with open(KEYS_FILE, "r") as k, open(USERS_FILE, "r") as u:
+            keys = k.readlines()
+            users = u.readlines()
+
+        response = "📋 **Registered Users & Keys:**\n\n"
+        for key, user in zip(keys, users):
+            response += f"👤 {user.strip()}\n🔑 `{key.strip()}`\n\n"
+        
+        await update.message.reply_text(response, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error in list_approved: {e}")
-        await update.message.reply_text("Error reading users file.")
-
+        await update.message.reply_text("Error reading database files.")
 # ---------- BUILD APPLICATION ----------
 application = Application.builder().token(BOT_TOKEN).build()
 
