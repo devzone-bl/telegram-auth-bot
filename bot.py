@@ -200,6 +200,40 @@ def webhook():
     update = Update.de_json(request.get_json(force=True), application.bot)
     asyncio.run_coroutine_threadsafe(application.process_update(update), loop)
     return "OK", 200
+@app.route('/health')
+def health():
+    return "OK", 200
 
+@app.route('/')
+def home():
+    return "Bot is running", 200
+
+# This is the part that was missing or broken:
+@app.route('/USERS.txt')
+def get_users():
+    try:
+        if os.path.exists(USERS_FILE):
+            with open(USERS_FILE, 'r') as f:
+                return f.read(), 200, {'Content-Type': 'text/plain'}
+        else:
+            return "File not found", 404
+    except Exception as e:
+        logger.error(f"Error serving USERS.txt: {e}")
+        return "Internal Error", 500
+
+@app.route('/KEYS.txt')
+def get_keys():
+    try:
+        if os.path.exists(KEYS_FILE):
+            with open(KEYS_FILE, 'r') as f:
+                return f.read(), 200, {'Content-Type': 'text/plain'}
+        else:
+            return "File not found", 404
+    except Exception as e:
+        logger.error(f"Error serving KEYS.txt: {e}")
+        return "Internal Error", 500
+
+# ---------- START FLASK ----------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
