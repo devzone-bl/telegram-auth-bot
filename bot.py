@@ -22,7 +22,7 @@ if not BOT_TOKEN:
 KEYS_FILE = "KEYS.txt"
 USERS_FILE = "USERS.txt"
 
-# Added RENAME states
+# State Constants
 (
     MENU_HUB,
     WAITING_FOR_REG,
@@ -42,32 +42,23 @@ logger = logging.getLogger(__name__)
 # ---------- CORE HELPER FUNCTIONS ----------
 
 def rename_user_sync(old_name: str, new_name: str):
-    """Updates the username in USERS.txt while keeping the status and line index intact."""
     if not os.path.exists(USERS_FILE): return False
-    
     updated = False
     new_lines = []
-    
     with open(USERS_FILE, "r") as f:
         lines = f.readlines()
-        
     for line in lines:
         if " -> " in line:
             parts = line.split(" -> ")
             current_name = parts[0].strip()
             status = parts[1].strip()
-            
             if current_name == old_name.strip():
                 new_lines.append(f"{new_name.strip()} -> {status}\n")
                 updated = True
-            else:
-                new_lines.append(line)
-        else:
-            new_lines.append(line)
-            
+            else: new_lines.append(line)
+        else: new_lines.append(line)
     if updated:
-        with open(USERS_FILE, "w") as f:
-            f.writelines(new_lines)
+        with open(USERS_FILE, "w") as f: f.writelines(new_lines)
     return updated
 
 def write_to_files(mac: str, username: str, status: str):
@@ -81,8 +72,7 @@ def write_to_files(mac: str, username: str, status: str):
             with open(filename, "a") as f:
                 if needs_newline: f.write("\n")
                 f.write(content + "\n")
-    except Exception as e:
-        logger.error(f"File write error: {e}")
+    except Exception as e: logger.error(f"File write error: {e}")
 
 def batch_update_users(target_input: str, new_status_base: str, extra_text: str = ""):
     if not os.path.exists(USERS_FILE): return 0, []
@@ -107,17 +97,9 @@ def delete_sync_users(target_input: str):
     targets = [u.strip() for u in target_input.split('-') if u.strip()]
     with open(USERS_FILE, "r") as f: u_lines = f.readlines()
     with open(KEYS_FILE, "r") as f: k_lines = f.readlines()
-
-    indices_to_remove = []
-    for idx, line in enumerate(u_lines):
-        if " -> " in line:
-            name = line.split(" -> ")[0].strip()
-            if name in targets:
-                indices_to_remove.append(idx)
-
+    indices_to_remove = [i for i, l in enumerate(u_lines) if " -> " in l and l.split(" -> ")[0].strip() in targets]
     new_u_lines = [line for i, line in enumerate(u_lines) if i not in indices_to_remove]
     new_k_lines = [line for i, line in enumerate(k_lines) if i not in indices_to_remove]
-
     with open(USERS_FILE, "w") as f: f.writelines(new_u_lines)
     with open(KEYS_FILE, "w") as f: f.writelines(new_k_lines)
     return len(indices_to_remove)
@@ -137,7 +119,7 @@ def main_menu_keyboard():
 def cancel_keyboard():
     return InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel Operation", callback_data="m_stop")]])
 
-# ---------- CONVERSATION HANDLERS ----------
+# ---------- HANDLERS ----------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     text = "✨ **System Hub Online**\n━━━━━━━━━━━━━━\nSelect administrative action:"
@@ -148,6 +130,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
     return MENU_HUB
 
+async def timeout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Closes the session after 2 minutes of inactivity."""
+    msg = "⏰ **Session Timeout**\nYour session has expired due to 2 minutes of inactivity."
+    if update.callback_query:
+        await update.callback_query.edit_message_text(msg, parse_mode="Markdown")
+    elif update.message:
+        await update.message.reply_text(msg, parse_mode="Markdown")
+    return ConversationHandler.END
+
 async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
@@ -156,98 +147,69 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     if c == "m_stop":
         await query.edit_message_text("❌ **Action Cancelled.**")
         return await start(update, context)
-
     if c == "m_reg": 
-        await query.edit_message_text("📝 **Registration**\nSend: `KEY USERNAME`", parse_mode="Markdown", reply_markup=cancel_keyboard())
-        return WAITING_FOR_REG
-    
+        await query.edit_message_text("📝 **Registration**\nSend: `KEY USERNAME`", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_REG
     if c == "m_grant": 
-        await query.edit_message_text("✅ **Grant SAFE**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard())
-        return WAITING_FOR_GRANT
-    
+        await query.edit_message_text("✅ **Grant SAFE**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_GRANT
     if c == "m_ban": 
-        await query.edit_message_text("🚫 **Set BAN**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard())
-        return WAITING_FOR_BAN
-    
+        await query.edit_message_text("🚫 **Set BAN**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_BAN
     if c == "m_del": 
-        await query.edit_message_text("🗑️ **Sync Delete**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard())
-        return WAITING_FOR_DELETE
-
+        await query.edit_message_text("🗑️ **Sync Delete**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_DELETE
     if c == "m_rename":
-        await query.edit_message_text("✏️ **Rename User**\nStep 1: Send the **current** username:", parse_mode="Markdown", reply_markup=cancel_keyboard())
-        return WAITING_FOR_RENAME_OLD
-    
+        await query.edit_message_text("✏️ **Rename User**\nStep 1: Send the **current** username:", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_RENAME_OLD
     if c == "m_exec": 
-        await query.edit_message_text("⚡ **Execute**\nStep 1: Send Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard())
-        return WAITING_FOR_EXEC_USERS
-
+        await query.edit_message_text("⚡ **Execute**\nStep 1: Send Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_EXEC_USERS
     if c == "m_list":
         try:
             with open(USERS_FILE, "r") as f: content = f.read().strip()
             msg = f"📋 **Database**\n```\n{content if content else 'Empty'}\n```"
         except: msg = "❌ File not found."
-        await query.edit_message_text(msg, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
-        return MENU_HUB
-
+        await query.edit_message_text(msg, reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
     if c == "m_help":
-        help_text = "🚀 **Help**\nRename: Change a user's name\nDelete: Sync removal\nRegister: Add user\nBan: Block user"
-        await query.edit_message_text(help_text, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
-        return MENU_HUB
-
+        await query.edit_message_text("🚀 **Help**\nRename: Change a user's name\nDelete: Delete a User\nRegister: Add user", reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
     if c == "m_cancel": 
-        await query.edit_message_text("💤 Session Closed.")
-        return ConversationHandler.END
+        await query.edit_message_text("💤 Session Closed."); return ConversationHandler.END
 
-# Action handlers
-async def handle_registration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+# Action implementation logic
+async def handle_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parts = update.message.text.split()
     if len(parts) < 2: 
-        await update.message.reply_text("⚠️ Use: `KEY USERNAME`", reply_markup=cancel_keyboard())
-        return WAITING_FOR_REG
+        await update.message.reply_text("⚠️ Use: `KEY USERNAME`", reply_markup=cancel_keyboard()); return WAITING_FOR_REG
     write_to_files(parts[0], " ".join(parts[1:]), "SAFE")
     await update.message.reply_text(f"✅ Registered `{parts[1]}`")
     return await start(update, context)
 
-async def handle_rename_old(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def handle_rename_old(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["rename_old"] = update.message.text.strip()
     await update.message.reply_text(f"✏️ Target: `{update.message.text}`\nStep 2: Send the **NEW** username:", parse_mode="Markdown", reply_markup=cancel_keyboard())
     return WAITING_FOR_RENAME_NEW
 
-async def handle_rename_new(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    old_name = context.user_data.get("rename_old")
-    new_name = update.message.text.strip()
-    
-    if rename_user_sync(old_name, new_name):
-        await update.message.reply_text(f"✅ Renamed `{old_name}` to `{new_name}`")
-    else:
-        await update.message.reply_text(f"❌ Could not find user `{old_name}`.")
-    
+async def handle_rename_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    old_name, new_name = context.user_data.get("rename_old"), update.message.text.strip()
+    if rename_user_sync(old_name, new_name): await update.message.reply_text(f"✅ Renamed `{old_name}` to `{new_name}`")
+    else: await update.message.reply_text(f"❌ User `{old_name}` not found.")
     return await start(update, context)
 
-async def handle_grant(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def handle_grant(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count, _ = batch_update_users(update.message.text, "SAFE")
-    await update.message.reply_text(f"✅ Updated {count} users to SAFE")
-    return await start(update, context)
+    await update.message.reply_text(f"✅ Updated {count} users to SAFE"); return await start(update, context)
 
-async def handle_ban(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def handle_ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count, _ = batch_update_users(update.message.text, "BAN")
-    await update.message.reply_text(f"🚫 {count} users BANNED")
-    return await start(update, context)
+    await update.message.reply_text(f"🚫 {count} users BANNED"); return await start(update, context)
 
-async def handle_delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def handle_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count = delete_sync_users(update.message.text)
-    await update.message.reply_text(f"🗑️ Deleted {count} users.")
-    return await start(update, context)
+    await update.message.reply_text(f"🗑️ Deleted {count} users."); return await start(update, context)
 
-async def handle_exec_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def handle_exec_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["exec_targets"] = update.message.text
     await update.message.reply_text("📝 **Step 2:** Send text to append:", reply_markup=cancel_keyboard())
     return WAITING_FOR_EXEC_TEXT
 
-async def handle_exec_final(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def handle_exec_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count, _ = batch_update_users(context.user_data.get("exec_targets", ""), "SAFE", update.message.text)
-    await update.message.reply_text(f"⚡ Modified {count} users.")
-    return await start(update, context)
+    await update.message.reply_text(f"⚡ Modified {count} users."); return await start(update, context)
 
 # ---------- APP SETUP ----------
 application = Application.builder().token(BOT_TOKEN).build()
@@ -264,8 +226,11 @@ conv_handler = ConversationHandler(
         WAITING_FOR_RENAME_NEW: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_rename_new)],
         WAITING_FOR_EXEC_USERS: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_exec_users)],
         WAITING_FOR_EXEC_TEXT: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_exec_final)],
+        # TIMEOUT STATE
+        ConversationHandler.TIMEOUT: [MessageHandler(filters.ALL, timeout_handler), CallbackQueryHandler(timeout_handler)]
     },
     fallbacks=[CallbackQueryHandler(menu_callback, pattern="^m_stop$")],
+    conversation_timeout=120  # <--- Timeout set to 120 seconds (2 minutes)
 )
 application.add_handler(conv_handler)
 
