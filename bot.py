@@ -41,6 +41,24 @@ logger = logging.getLogger(__name__)
 
 # ---------- CORE HELPER FUNCTIONS ----------
 
+def ban_all_users_sync():
+    """Sets every user in USERS_FILE to BAN status."""
+    if not os.path.exists(USERS_FILE): return 0
+    updated_count = 0
+    new_lines = []
+    with open(USERS_FILE, "r") as f:
+        lines = f.readlines()
+    for line in lines:
+        if " -> " in line:
+            username_part = line.split(" -> ")[0].strip()
+            new_lines.append(f"{username_part} -> BAN\n")
+            updated_count += 1
+        else:
+            new_lines.append(line)
+    with open(USERS_FILE, "w") as f:
+        f.writelines(new_lines)
+    return updated_count
+
 def rename_user_sync(old_name: str, new_name: str):
     if not os.path.exists(USERS_FILE): return False
     updated = False
@@ -112,6 +130,7 @@ def main_menu_keyboard():
         [InlineKeyboardButton("🚫 Ban", callback_data="m_ban"), InlineKeyboardButton("🗑️ Delete", callback_data="m_del")],
         [InlineKeyboardButton("✏️ Rename", callback_data="m_rename"), InlineKeyboardButton("⚡ Execute", callback_data="m_exec")],
         [InlineKeyboardButton("📋 List", callback_data="m_list"), InlineKeyboardButton("ℹ️ Help", callback_data="m_help")],
+        [InlineKeyboardButton("💀 BAN ALL USERS", callback_data="m_ban_all")],
         [InlineKeyboardButton("✖️ Close Session", callback_data="m_cancel")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -131,7 +150,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return MENU_HUB
 
 async def timeout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Closes the session after 2 minutes of inactivity."""
     msg = "⏰ **Session Timeout**\nYour session has expired due to 2 minutes of inactivity."
     if update.callback_query:
         await update.callback_query.edit_message_text(msg, parse_mode="Markdown")
@@ -159,6 +177,13 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await query.edit_message_text("✏️ **Rename User**\nStep 1: Send the **current** username:", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_RENAME_OLD
     if c == "m_exec": 
         await query.edit_message_text("⚡ **Execute**\nStep 1: Send Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_EXEC_USERS
+    
+    # NEW BAN ALL LOGIC
+    if c == "m_ban_all":
+        count = ban_all_users_sync()
+        await query.edit_message_text(f"💀 **Mass Ban Applied**\n{count} users were moved to BAN status.", reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+        return MENU_HUB
+
     if c == "m_list":
         try:
             with open(USERS_FILE, "r") as f: content = f.read().strip()
@@ -166,11 +191,10 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         except: msg = "❌ File not found."
         await query.edit_message_text(msg, reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
     if c == "m_help":
-        await query.edit_message_text("🚀 **Help**\nRename: Change a user's name\nDelete: Delete a User\nRegister: Add user", reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
+        await query.edit_message_text("🚀 **Help**\nRename: Change a user's name\nDelete: Delete a User\nRegister: Add user\nBan All: Ban everyone in file", reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
     if c == "m_cancel": 
         await query.edit_message_text("💤 Session Closed."); return ConversationHandler.END
 
-# Action implementation logic
 async def handle_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parts = update.message.text.split()
     if len(parts) < 2: 
@@ -226,15 +250,13 @@ conv_handler = ConversationHandler(
         WAITING_FOR_RENAME_NEW: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_rename_new)],
         WAITING_FOR_EXEC_USERS: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_exec_users)],
         WAITING_FOR_EXEC_TEXT: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_exec_final)],
-        # TIMEOUT STATE
         ConversationHandler.TIMEOUT: [MessageHandler(filters.ALL, timeout_handler), CallbackQueryHandler(timeout_handler)]
     },
     fallbacks=[CallbackQueryHandler(menu_callback, pattern="^m_stop$")],
-    conversation_timeout=120  # <--- Timeout set to 120 seconds (2 minutes)
+    conversation_timeout=120
 )
 application.add_handler(conv_handler)
 
-# ---------- FLASK & ASYNC LOOP ----------
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
