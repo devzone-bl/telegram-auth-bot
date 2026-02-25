@@ -32,8 +32,9 @@ USERS_FILE = "USERS.txt"
     WAITING_FOR_EXEC_TEXT,
     WAITING_FOR_DELETE,
     WAITING_FOR_RENAME_OLD,
-    WAITING_FOR_RENAME_NEW
-) = range(9)
+    WAITING_FOR_RENAME_NEW,
+    WAITING_FOR_KILL # Added State
+) = range(10)
 
 app = Flask(__name__)
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -94,6 +95,7 @@ def write_to_files(mac: str, username: str, status: str):
 
 def batch_update_users(target_input: str, new_status_base: str, extra_text: str = ""):
     if not os.path.exists(USERS_FILE): return 0, []
+    # Split by '-' to allow batch processing like user1-user2
     targets = [u.strip() for u in target_input.split('-') if u.strip()]
     updated_users, new_lines = [], []
     with open(USERS_FILE, "r") as f:
@@ -127,10 +129,10 @@ def delete_sync_users(target_input: str):
 def main_menu_keyboard():
     keyboard = [
         [InlineKeyboardButton("📝 Register", callback_data="m_reg"), InlineKeyboardButton("✅ Grant", callback_data="m_grant")],
-        [InlineKeyboardButton("🚫 Ban", callback_data="m_ban"), InlineKeyboardButton("🗑️ Delete", callback_data="m_del")],
-        [InlineKeyboardButton("✏️ Rename", callback_data="m_rename"), InlineKeyboardButton("⚡ Execute", callback_data="m_exec")],
-        [InlineKeyboardButton("📋 List", callback_data="m_list"), InlineKeyboardButton("ℹ️ Help", callback_data="m_help")],
-        [InlineKeyboardButton("💀 BAN ALL USERS", callback_data="m_ban_all")],
+        [InlineKeyboardButton("🚫 Ban", callback_data="m_ban"), InlineKeyboardButton("☠️ KILL", callback_data="m_kill")],
+        [InlineKeyboardButton("🗑️ Delete", callback_data="m_del"), InlineKeyboardButton("✏️ Rename", callback_data="m_rename")],
+        [InlineKeyboardButton("⚡ Execute", callback_data="m_exec"), InlineKeyboardButton("📋 List", callback_data="m_list")],
+        [InlineKeyboardButton("ℹ️ Help", callback_data="m_help"), InlineKeyboardButton("💀 BAN ALL USERS", callback_data="m_ban_all")],
         [InlineKeyboardButton("✖️ Close Session", callback_data="m_cancel")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -171,6 +173,8 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await query.edit_message_text("✅ **Grant SAFE**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_GRANT
     if c == "m_ban": 
         await query.edit_message_text("🚫 **Set BAN**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_BAN
+    if c == "m_kill": 
+        await query.edit_message_text("☠️ **Set KILL**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_KILL
     if c == "m_del": 
         await query.edit_message_text("🗑️ **Sync Delete**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_DELETE
     if c == "m_rename":
@@ -178,7 +182,6 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     if c == "m_exec": 
         await query.edit_message_text("⚡ **Execute**\nStep 1: Send Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_EXEC_USERS
     
-    # NEW BAN ALL LOGIC
     if c == "m_ban_all":
         count = ban_all_users_sync()
         await query.edit_message_text(f"💀 **Mass Ban Applied**\n{count} users were moved to BAN status.", reply_markup=main_menu_keyboard(), parse_mode="Markdown")
@@ -191,7 +194,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         except: msg = "❌ File not found."
         await query.edit_message_text(msg, reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
     if c == "m_help":
-        await query.edit_message_text("🚀 **Help**\nRename: Change a user's name\nDelete: Delete a User\nRegister: Add user\nBan All: Ban everyone in file", reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
+        await query.edit_message_text("🚀 **Help**\nKill: Set user status to KILL\nRename: Change a user's name\nDelete: Delete a User\nRegister: Add user", reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
     if c == "m_cancel": 
         await query.edit_message_text("💤 Session Closed."); return ConversationHandler.END
 
@@ -222,6 +225,10 @@ async def handle_ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count, _ = batch_update_users(update.message.text, "BAN")
     await update.message.reply_text(f"🚫 {count} users BANNED"); return await start(update, context)
 
+async def handle_kill(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    count, _ = batch_update_users(update.message.text, "KILL")
+    await update.message.reply_text(f"☠️ {count} users set to KILL status."); return await start(update, context)
+
 async def handle_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count = delete_sync_users(update.message.text)
     await update.message.reply_text(f"🗑️ Deleted {count} users."); return await start(update, context)
@@ -245,6 +252,7 @@ conv_handler = ConversationHandler(
         WAITING_FOR_REG: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_registration)],
         WAITING_FOR_GRANT: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_grant)],
         WAITING_FOR_BAN: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ban)],
+        WAITING_FOR_KILL: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_kill)],
         WAITING_FOR_DELETE: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_delete)],
         WAITING_FOR_RENAME_OLD: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_rename_old)],
         WAITING_FOR_RENAME_NEW: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_rename_new)],
