@@ -2,8 +2,10 @@ import logging
 import os
 import threading
 import asyncio
+import shutil
+import datetime
 from flask import Flask, request
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -19,8 +21,12 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("No BOT_TOKEN environment variable set")
 
+# Optional: Add your Telegram Chat ID in Railway to receive daily automated backups
+ADMIN_ID = os.environ.get("ADMIN_ID") 
+
 KEYS_FILE = "KEYS.txt"
 USERS_FILE = "USERS.txt"
+USERS_BACKUP_FILE = "USERS_BACKUP.txt" # Added for the Undo Ban feature
 
 # State Constants
 (
@@ -33,7 +39,7 @@ USERS_FILE = "USERS.txt"
     WAITING_FOR_DELETE,
     WAITING_FOR_RENAME_OLD,
     WAITING_FOR_RENAME_NEW,
-    WAITING_FOR_KILL # Added State
+    WAITING_FOR_KILL
 ) = range(10)
 
 app = Flask(__name__)
@@ -43,8 +49,12 @@ logger = logging.getLogger(__name__)
 # ---------- CORE HELPER FUNCTIONS ----------
 
 def ban_all_users_sync():
-    """Sets every user in USERS_FILE to BAN status."""
+    """Backs up the current users, then sets every user to BAN status."""
     if not os.path.exists(USERS_FILE): return 0
+    
+    # 1. Create a backup first so we can undo it later
+    shutil.copyfile(USERS_FILE, USERS_BACKUP_FILE)
+    
     updated_count = 0
     new_lines = []
     with open(USERS_FILE, "r") as f:
@@ -59,6 +69,14 @@ def ban_all_users_sync():
     with open(USERS_FILE, "w") as f:
         f.writelines(new_lines)
     return updated_count
+
+def undo_ban_all_sync():
+    """Restores the USERS_FILE from the backup created before the mass ban."""
+    if not os.path.exists(USERS_BACKUP_FILE):
+        return False
+    # Copy the backup over the current file
+    shutil.copyfile(USERS_BACKUP_FILE, USERS_FILE)
+    return True
 
 def rename_user_sync(old_name: str, new_name: str):
     if not os.path.exists(USERS_FILE): return False
@@ -95,7 +113,6 @@ def write_to_files(mac: str, username: str, status: str):
 
 def batch_update_users(target_input: str, new_status_base: str, extra_text: str = ""):
     if not os.path.exists(USERS_FILE): return 0, []
-    # Split by '-' to allow batch processing like user1-user2
     targets = [u.strip() for u in target_input.split('-') if u.strip()]
     updated_users, new_lines = [], []
     with open(USERS_FILE, "r") as f:
@@ -124,6 +141,23 @@ def delete_sync_users(target_input: str):
     with open(KEYS_FILE, "w") as f: f.writelines(new_k_lines)
     return len(indices_to_remove)
 
+# ---------- AUTOMATED BACKUP TASK ----------
+async def send_daily_backup(context: ContextTypes.DEFAULT_TYPE):
+    """Sends the database files automatically to the ADMIN_ID daily."""
+    if not ADMIN_ID:
+        logger.warning("ADMIN_ID not set. Skipping automated daily backup.")
+        return
+    try:
+        if os.path.exists(USERS_FILE):
+            with open(USERS_FILE, 'rb') as f:
+                await context.bot.send_document(chat_id=ADMIN_ID, document=f, caption="📅 Daily USERS Backup")
+        if os.path.exists(KEYS_FILE):
+            with open(KEYS_FILE, 'rb') as f:
+                await context.bot.send_document(chat_id=ADMIN_ID, document=f, caption="📅 Daily KEYS Backup")
+        logger.info("Daily backups sent successfully.")
+    except Exception as e:
+        logger.error(f"Failed to send daily backup: {e}")
+
 # ---------- UI COMPONENTS ----------
 
 def main_menu_keyboard():
@@ -132,7 +166,8 @@ def main_menu_keyboard():
         [InlineKeyboardButton("🚫 Ban", callback_data="m_ban"), InlineKeyboardButton("☠️ KILL", callback_data="m_kill")],
         [InlineKeyboardButton("🗑️ Delete", callback_data="m_del"), InlineKeyboardButton("✏️ Rename", callback_data="m_rename")],
         [InlineKeyboardButton("⚡ Execute", callback_data="m_exec"), InlineKeyboardButton("📋 List", callback_data="m_list")],
-        [InlineKeyboardButton("ℹ️ Help", callback_data="m_help"), InlineKeyboardButton("💀 BAN ALL USERS", callback_data="m_ban_all")],
+        [InlineKeyboardButton("💀 BAN ALL USERS", callback_data="m_ban_all"), InlineKeyboardButton("↩️ Undo Ban All", callback_data="m_undo_ban")],
+        [InlineKeyboardButton("📥 Get Backups", callback_data="m_backup"), InlineKeyboardButton("ℹ️ Help", callback_data="m_help")],
         [InlineKeyboardButton("✖️ Close Session", callback_data="m_cancel")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -184,8 +219,33 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     
     if c == "m_ban_all":
         count = ban_all_users_sync()
-        await query.edit_message_text(f"💀 **Mass Ban Applied**\n{count} users were moved to BAN status.", reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+        await query.edit_message_text(f"💀 **Mass Ban Applied**\n{count} users were moved to BAN status.\n\n*If this was a mistake, use 'Undo Ban All'.*", reply_markup=main_menu_keyboard(), parse_mode="Markdown")
         return MENU_HUB
+    
+    if c == "m_undo_ban":
+        success = undo_ban_all_sync()
+        if success:
+            msg = "✅ **Undo Successful**\nUsers restored to their states prior to the mass ban."
+        else:
+            msg = "❌ **No backup found to restore.**"
+        await query.edit_message_text(msg, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+        return MENU_HUB
+
+    if c == "m_backup":
+        await query.edit_message_text("📤 **Sending backups directly to this chat...**", parse_mode="Markdown")
+        try:
+            chat_id = update.effective_chat.id
+            if os.path.exists(USERS_FILE):
+                with open(USERS_FILE, 'rb') as f:
+                    await context.bot.send_document(chat_id=chat_id, document=f)
+            if os.path.exists(KEYS_FILE):
+                with open(KEYS_FILE, 'rb') as f:
+                    await context.bot.send_document(chat_id=chat_id, document=f)
+            # Re-send the menu to the chat
+            await context.bot.send_message(chat_id=chat_id, text="✅ **Backups sent successfully!**", reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+        except Exception as e:
+            await context.bot.send_message(chat_id=chat_id, text=f"❌ Error sending backups: {e}", reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+        return ConversationHandler.END
 
     if c == "m_list":
         try:
@@ -193,8 +253,11 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             msg = f"📋 **Database**\n```\n{content if content else 'Empty'}\n```"
         except: msg = "❌ File not found."
         await query.edit_message_text(msg, reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
+    
     if c == "m_help":
-        await query.edit_message_text("🚀 **Help**\nKill: Set user status to KILL\nRename: Change a user's name\nDelete: Delete a User\nRegister: Add user", reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
+        help_text = "🚀 **Help**\nKill: Set user status to KILL\nRename: Change a user's name\nDelete: Delete a User\nRegister: Add user\nGet Backups: Downloads Database\nUndo Ban All: Reverses an accidental mass ban"
+        await query.edit_message_text(help_text, reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
+    
     if c == "m_cancel": 
         await query.edit_message_text("💤 Session Closed."); return ConversationHandler.END
 
@@ -270,6 +333,12 @@ asyncio.set_event_loop(loop)
 
 async def init_app():
     await application.initialize()
+    
+    # Initialize Daily Backup Job at Midnight UTC (Requires apscheduler in requirements.txt)
+    if application.job_queue:
+        t = datetime.time(hour=0, minute=0, tzinfo=datetime.timezone.utc)
+        application.job_queue.run_daily(send_daily_backup, time=t)
+        
     domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
     if domain: await application.bot.set_webhook(url=f"https://{domain}/webhook")
 
