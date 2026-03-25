@@ -39,7 +39,7 @@ USERS_BACKUP_FILE = "USERS_BACKUP.txt"
     WAITING_FOR_RENAME_OLD,
     WAITING_FOR_RENAME_NEW,
     WAITING_FOR_KILL
-) = range(11)
+) = range(10)
 
 app = Flask(__name__)
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
