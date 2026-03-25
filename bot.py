@@ -162,6 +162,10 @@ def cancel_keyboard():
 # ---------- HANDLERS ----------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    print(f"DEBUG: User ID is {update.effective_user.id}, Admin ID is {ADMIN_ID}")
+    if not is_admin(update): 
+        print("DEBUG: Security check failed. Ignoring user.")
+        return ConversationHandler.END
     if not is_admin(update): return ConversationHandler.END # Ignore unauthorized
     
     text = "✨ **System Hub Online**\nSelect administrative action:"
