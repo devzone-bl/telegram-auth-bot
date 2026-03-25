@@ -174,7 +174,8 @@ async def main():
     await application.initialize()
     await application.start()
     domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
-    if domain: await application.bot.set_webhook(url=f"https://{domain}/webhook")
+    if domain: 
+        await application.bot.set_webhook(url=f"https://{domain}/webhook")
     
     from hypercorn.asyncio import serve
     from hypercorn.config import Config
