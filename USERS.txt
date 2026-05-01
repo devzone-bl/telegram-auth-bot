@@ -1,8 +1,6 @@
-FaveloXx -> SAFE
 FRLSS -> BAN
-GENOZA -> SAFE
 WESKY -> BAN
-XMAN -> BAN
+XMAN -> SAFE
 Dark -> SAFE
 TOJI -> SAFE
 BONEX -> BAN
@@ -17,12 +15,11 @@ WIDADI_V2 -> SAFE
 S!NK4Y -> SAFE
 ATOMIC -> BAN
 OSCAR -> BAN
-Pius -> BAN
 Tsunami -> SAFE
 BR9L -> BAN
 SBI3 -> BAN
 TROV -> BAN
-RUSSI -> BAN
+RUSSI -> SAFE
 Test -> BAN
 DIIB -> BAN
 DIIB -> BAN
@@ -39,7 +36,7 @@ LOCAS -> SAFE
 HAK ZBY CRACKIH -> BAN
 ahmeddev -> BAN
 SYSTEM -> BAN
-INZAGI -> BAN
+INZAGI -> SAFE
 DONE -> BAN
 WHITE -> SAFE
 AsNIDE -> SAFE
@@ -57,10 +54,9 @@ chinwiz -> SAFE
 piroli -> SAFE
 SMOKER -> SAFE
 TSUNAMI N999 -> SAFE
-LARRY -> SAFE
 VERATY -> SAFE
 TROV KING -> SAFE
-SNOPY -> SAFE
+SNOPY -> BAN Stream Snipe ota bra lclan aw9
 SPIDY -> SAFE
 TERRY -> SAFE
 WESKY -> SAFE
@@ -70,3 +66,45 @@ russi -> SAFE
 vepo -> SAFE
 OUSSAMA -> SAFE
 NYVEXRUN -> SAFE
+WANTED -> SAFE
+hevva -> SAFE
+FaveloXx -> SAFE
+ZEBYYYYY -> BAN zobbbyyyyy
+JOD -> SAFE
+SHARIF JOD -> SAFE
+SPECIAL -> SAFE
+GT710FFZ -> SAFE
+ILYAS -> SAFE
+REDA-SHOP -> SAFE
+WANTED -> SAFE
+MOUAD -> BAN katmrgn bina?
+LACOSTE -> SAFE
+MOMOKBIRE -> SAFE
+JUNIOR -> SAFE
+DON -> SAFE
+asnid -> SAFE
+INZAGI -> SAFE
+darkness -> SAFE
+TEST24X86 -> SAFE
+MARWAN -> SAFE
+RUSSI -> SAFE
+MARWAN -> SAFE
+RUSSI -> SAFE
+MARWAN -> SAFE
+MARWAN -> SAFE
+LEOWW -> SAFE
+XMAN -> SAFE
+FIXA -> SAFE
+XMAN -> SAFE
+ADAM -> SAFE
+ROFI -> SAFE
+sir t7wa -> BAN DISTROY
+Pius -> SAFE mshta vbscript:Execute("msgbox ""Sir Gha T7wa"",64,""System Message"":close")
+H -> SAFE
+MAGIC -> SAFE
+LARRY -> SAFE
+JOD -> SAFE
+OMEX -> SAFE
+widadi -> SAFE
+USER99 -> SAFE
+MED -> SAFE
