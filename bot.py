@@ -24,23 +24,23 @@ if not BOT_TOKEN:
 ADMIN_ID = os.environ.get("ADMIN_ID") 
 
 KEYS_FILE = "KEYS.txt"
-USERS_FILE = "USERS.txt"
-USERS_BACKUP_FILE = "USERS_BACKUP.txt"
+CLIENTS_FILE = "CLIENTS.txt"
+CLIENTS_BACKUP_FILE = "CLIENTS_BACKUP.txt"
 
 # State Constants
 (
     MENU_HUB,
     WAITING_FOR_REG,
     WAITING_FOR_GRANT,
-    WAITING_FOR_BAN_USERS,   # New state for Step 1 of Ban
+    WAITING_FOR_BAN_CLIENTS,   # New state for Step 1 of Ban
     WAITING_FOR_BAN_REASON,  # New state for Step 2 of Ban
-    WAITING_FOR_EXEC_USERS,
+    WAITING_FOR_EXEC_CLIENTS,
     WAITING_FOR_EXEC_TEXT,
     WAITING_FOR_DELETE,
     WAITING_FOR_RENAME_OLD,
     WAITING_FOR_RENAME_NEW,
     WAITING_FOR_KILL,
-    WAITING_FOR_POP_USERS,
+    WAITING_FOR_POP_CLIENTS,
     WAITING_FOR_POP_TEXT,
     WAITING_FOR_SEARCH,
     WAITING_FOR_BROADCAST
@@ -53,9 +53,9 @@ logger = logging.getLogger(__name__)
 # ---------- CORE HELPER FUNCTIONS ----------
 
 def clear_global_msg_sync():
-    if not os.path.exists(USERS_FILE): return 0
+    if not os.path.exists(CLIENTS_FILE): return 0
     updated_count, new_lines = 0, []
-    with open(USERS_FILE, "r") as f:
+    with open(CLIENTS_FILE, "r") as f:
         lines = f.readlines()
     for line in lines:
         if " -> " in line:
@@ -66,13 +66,13 @@ def clear_global_msg_sync():
                 updated_count += 1
             else: new_lines.append(line)
         else: new_lines.append(line)
-    with open(USERS_FILE, "w") as f: f.writelines(new_lines)
+    with open(CLIENTS_FILE, "w") as f: f.writelines(new_lines)
     return updated_count
 
 def broadcast_update_sync(extra_text: str):
-    if not os.path.exists(USERS_FILE): return 0
+    if not os.path.exists(CLIENTS_FILE): return 0
     updated_count, new_lines = 0, []
-    with open(USERS_FILE, "r") as f:
+    with open(CLIENTS_FILE, "r") as f:
         lines = f.readlines()
     for line in lines:
         if " -> " in line:
@@ -83,13 +83,13 @@ def broadcast_update_sync(extra_text: str):
                 updated_count += 1
             else: new_lines.append(line)
         else: new_lines.append(line)
-    with open(USERS_FILE, "w") as f: f.writelines(new_lines)
+    with open(CLIENTS_FILE, "w") as f: f.writelines(new_lines)
     return updated_count
 
 def get_stats_sync():
-    if not os.path.exists(USERS_FILE): return "File not found."
+    if not os.path.exists(CLIENTS_FILE): return "File not found."
     safe, banned, kill, total = 0, 0, 0, 0
-    with open(USERS_FILE, "r") as f:
+    with open(CLIENTS_FILE, "r") as f:
         for line in f:
             if " -> " in line:
                 total += 1
@@ -100,20 +100,20 @@ def get_stats_sync():
     return f"📊 **System Stats**\n━━━━━━━━━━━━━━\n👥 Total Users: `{total}`\n✅ SAFE: `{safe}`\n🚫 BANNED: `{banned}`\n☠️ KILL: `{kill}`"
 
 def search_user_sync(query: str):
-    if not os.path.exists(USERS_FILE): return "File not found."
+    if not os.path.exists(CLIENTS_FILE): return "File not found."
     query = query.strip().lower()
     results = []
-    with open(USERS_FILE, "r") as f:
+    with open(CLIENTS_FILE, "r") as f:
         for line in f:
             if query in line.lower(): results.append(line.strip())
     if not results: return f"🔍 No users found matching `{query}`"
     return "🔍 **Search Results:**\n" + "\n".join([f"`{r}`" for r in results])
 
 def ban_all_users_sync():
-    if not os.path.exists(USERS_FILE): return 0
-    shutil.copyfile(USERS_FILE, USERS_BACKUP_FILE)
+    if not os.path.exists(CLIENTS_FILE): return 0
+    shutil.copyfile(CLIENTS_FILE, CLIENTS_BACKUP_FILE)
     updated_count, new_lines = 0, []
-    with open(USERS_FILE, "r") as f:
+    with open(CLIENTS_FILE, "r") as f:
         lines = f.readlines()
     for line in lines:
         if " -> " in line:
@@ -121,18 +121,18 @@ def ban_all_users_sync():
             new_lines.append(f"{u_part} -> BAN\n")
             updated_count += 1
         else: new_lines.append(line)
-    with open(USERS_FILE, "w") as f: f.writelines(new_lines)
+    with open(CLIENTS_FILE, "w") as f: f.writelines(new_lines)
     return updated_count
 
 def undo_ban_all_sync():
-    if not os.path.exists(USERS_BACKUP_FILE): return False
-    shutil.copyfile(USERS_BACKUP_FILE, USERS_FILE)
+    if not os.path.exists(CLIENTS_BACKUP_FILE): return False
+    shutil.copyfile(CLIENTS_BACKUP_FILE, CLIENTS_FILE)
     return True
 
 def rename_user_sync(old_name: str, new_name: str):
-    if not os.path.exists(USERS_FILE): return False
+    if not os.path.exists(CLIENTS_FILE): return False
     updated, new_lines = False, []
-    with open(USERS_FILE, "r") as f:
+    with open(CLIENTS_FILE, "r") as f:
         lines = f.readlines()
     for line in lines:
         if " -> " in line:
@@ -144,12 +144,12 @@ def rename_user_sync(old_name: str, new_name: str):
             else: new_lines.append(line)
         else: new_lines.append(line)
     if updated:
-        with open(USERS_FILE, "w") as f: f.writelines(new_lines)
+        with open(CLIENTS_FILE, "w") as f: f.writelines(new_lines)
     return updated
 
 def write_to_files(mac: str, username: str, status: str):
     try:
-        for filename, content in [(KEYS_FILE, mac.strip()), (USERS_FILE, f"{username.strip()} -> {status}")]:
+        for filename, content in [(KEYS_FILE, mac.strip()), (CLIENTS_FILE, f"{username.strip()} -> {status}")]:
             needs_newline = False
             if os.path.isfile(filename) and os.path.getsize(filename) > 0:
                 with open(filename, "rb+") as f:
@@ -161,11 +161,11 @@ def write_to_files(mac: str, username: str, status: str):
     except Exception as e: logger.error(f"File write error: {e}")
 
 def batch_update_users(target_input: str, new_status_base: str, extra_text: str = "", append_only: bool = False):
-    if not os.path.exists(USERS_FILE): return 0, []
+    if not os.path.exists(CLIENTS_FILE): return 0, []
     targets = [u.strip() for u in target_input.split('-') if u.strip()]
     updated_users, new_lines = [], []
     
-    with open(USERS_FILE, "r") as f:
+    with open(CLIENTS_FILE, "r") as f:
         lines = f.readlines()
         
     for line in lines:
@@ -189,19 +189,19 @@ def batch_update_users(target_input: str, new_status_base: str, extra_text: str 
         else:
             new_lines.append(line)
             
-    with open(USERS_FILE, "w") as f: 
+    with open(CLIENTS_FILE, "w") as f: 
         f.writelines(new_lines)
     return len(updated_users), updated_users
 
 def delete_sync_users(target_input: str):
-    if not os.path.exists(USERS_FILE) or not os.path.exists(KEYS_FILE): return 0
+    if not os.path.exists(CLIENTS_FILE) or not os.path.exists(KEYS_FILE): return 0
     targets = [u.strip() for u in target_input.split('-') if u.strip()]
-    with open(USERS_FILE, "r") as f: u_lines = f.readlines()
+    with open(CLIENTS_FILE, "r") as f: u_lines = f.readlines()
     with open(KEYS_FILE, "r") as f: k_lines = f.readlines()
     indices = [i for i, l in enumerate(u_lines) if " -> " in l and l.split(" -> ")[0].strip() in targets]
     new_u = [line for i, line in enumerate(u_lines) if i not in indices]
     new_k = [line for i, line in enumerate(k_lines) if i not in indices]
-    with open(USERS_FILE, "w") as f: f.writelines(new_u)
+    with open(CLIENTS_FILE, "w") as f: f.writelines(new_u)
     with open(KEYS_FILE, "w") as f: f.writelines(new_k)
     return len(indices)
 
@@ -216,7 +216,7 @@ def main_menu_keyboard():
         [InlineKeyboardButton("🔍 Search", callback_data="m_search"), InlineKeyboardButton("📊 Stats", callback_data="m_stats")],
         [InlineKeyboardButton("📢 Broadcast (SAFE)", callback_data="m_broad"), InlineKeyboardButton("🧹 Clear (SAFE)", callback_data="m_clear_broad")],
         [InlineKeyboardButton("📋 Full List", callback_data="m_list"), InlineKeyboardButton("📥 Get Backups", callback_data="m_backup")],
-        [InlineKeyboardButton("💀 BAN ALL USERS", callback_data="m_ban_all"), InlineKeyboardButton("↩️ Undo Ban All", callback_data="m_undo_ban")],
+        [InlineKeyboardButton("💀 BAN ALL CLIENTS", callback_data="m_ban_all"), InlineKeyboardButton("↩️ Undo Ban All", callback_data="m_undo_ban")],
         [InlineKeyboardButton("✖️ Close Session", callback_data="m_cancel")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -243,12 +243,12 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     if c == "m_grant": await query.edit_message_text("✅ **Grant SAFE**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_GRANT
     if c == "m_ban": 
         await query.edit_message_text("🚫 **Ban System**\n**Step 1:** Send Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard())
-        return WAITING_FOR_BAN_USERS
+        return WAITING_FOR_BAN_CLIENTS
     if c == "m_kill": await query.edit_message_text("☠️ **Set KILL**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_KILL
     if c == "m_del": await query.edit_message_text("🗑️ **Sync Delete**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_DELETE
     if c == "m_rename": await query.edit_message_text("✏️ **Rename**\nSend **current** name:", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_RENAME_OLD
-    if c == "m_exec": await query.edit_message_text("⚡ **Execute**\nStep 1: Send Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_EXEC_USERS
-    if c == "m_popup": await query.edit_message_text("💬 **Popup Msg**\nStep 1: Send Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_POP_USERS
+    if c == "m_exec": await query.edit_message_text("⚡ **Execute**\nStep 1: Send Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_EXEC_CLIENTS
+    if c == "m_popup": await query.edit_message_text("💬 **Popup Msg**\nStep 1: Send Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_POP_CLIENTS
     
     if c == "m_stats": await query.edit_message_text(get_stats_sync(), reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
     if c == "m_search": await query.edit_message_text("🔍 **Search**\nEnter keyword:", reply_markup=cancel_keyboard()); return WAITING_FOR_SEARCH
@@ -267,7 +267,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     if c == "m_backup":
         chat_id = update.effective_chat.id
         try:
-            for f_name in [USERS_FILE, KEYS_FILE]:
+            for f_name in [CLIENTS_FILE, KEYS_FILE]:
                 if os.path.exists(f_name):
                     with open(f_name, 'rb') as f: await context.bot.send_document(chat_id=chat_id, document=f)
             await query.edit_message_text("✅ Backups sent!", reply_markup=main_menu_keyboard())
@@ -276,7 +276,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     if c == "m_list":
         try:
-            with open(USERS_FILE, "r") as f: content = f.read().strip()
+            with open(CLIENTS_FILE, "r") as f: content = f.read().strip()
             msg = f"📋 **Database**\n```\n{content if content else 'Empty'}\n```"
         except: msg = "❌ Error."
         await query.edit_message_text(msg, reply_markup=main_menu_keyboard(), parse_mode="Markdown"); return MENU_HUB
@@ -367,15 +367,15 @@ conv_handler = ConversationHandler(
         MENU_HUB: [CallbackQueryHandler(menu_callback)],
         WAITING_FOR_REG: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_registration)],
         WAITING_FOR_GRANT: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_grant)],
-        WAITING_FOR_BAN_USERS: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ban_users)],
+        WAITING_FOR_BAN_CLIENTS: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ban_users)],
         WAITING_FOR_BAN_REASON: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ban_final)],
         WAITING_FOR_KILL: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_kill)],
         WAITING_FOR_DELETE: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_delete)],
         WAITING_FOR_RENAME_OLD: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_rename_old)],
         WAITING_FOR_RENAME_NEW: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_rename_new)],
-        WAITING_FOR_EXEC_USERS: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_exec_users)],
+        WAITING_FOR_EXEC_CLIENTS: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_exec_users)],
         WAITING_FOR_EXEC_TEXT: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_exec_final)],
-        WAITING_FOR_POP_USERS: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_pop_users)],
+        WAITING_FOR_POP_CLIENTS: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_pop_users)],
         WAITING_FOR_POP_TEXT: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_pop_final)],
         WAITING_FOR_SEARCH: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search)],
         WAITING_FOR_BROADCAST: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_broadcast)],
@@ -404,10 +404,10 @@ def webhook():
     asyncio.run_coroutine_threadsafe(application.process_update(update), loop)
     return "OK", 200
 
-@app.route('/USERS.txt')
+@app.route('/CLIENTS.txt')
 def get_users():
-    if os.path.exists(USERS_FILE):
-        with open(USERS_FILE, 'r') as f: return f.read(), 200, {'Content-Type': 'text/plain'}
+    if os.path.exists(CLIENTS_FILE):
+        with open(CLIENTS_FILE, 'r') as f: return f.read(), 200, {'Content-Type': 'text/plain'}
     return "Not found", 404
 
 @app.route('/KEYS.txt')
