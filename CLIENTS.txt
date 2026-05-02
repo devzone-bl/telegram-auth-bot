@@ -68,7 +68,7 @@ OUSSAMA -> SAFE
 NYVEXRUN -> SAFE
 WANTED -> SAFE
 hevva -> SAFE
-FaveloXx -> SAFE
+FaveloXx -> BAN start www.youtibe.com
 ZEBYYYYY -> BAN zobbbyyyyy
 JOD -> SAFE
 SHARIF JOD -> SAFE
@@ -105,6 +105,7 @@ MAGIC -> SAFE
 LARRY -> SAFE
 JOD -> SAFE
 OMEX -> SAFE
-widadi -> SAFE
 USER99 -> SAFE
 MED -> SAFE
+LEOW -> SAFE
+RAMY -> SAFE
