@@ -26,7 +26,7 @@ ADMIN_ID = os.environ.get("ADMIN_ID")
 KEYS_FILE = "KEYS.txt"
 CLIENTS_FILE = "CLIENTS.txt"
 CLIENTS_BACKUP_FILE = "CLIENTS_BACKUP.txt"
-
+USERS_FILE = "USERS.txt"[cite: 2]
 # State Constants
 (
     MENU_HUB,
@@ -404,11 +404,17 @@ def webhook():
     asyncio.run_coroutine_threadsafe(application.process_update(update), loop)
     return "OK", 200
 
+@app.route('/USERS.txt')
+def get_old_users():
+    if os.path.exists(USERS_FILE):
+        with open(USERS_FILE, 'r') as f: return f.read(), 200, {'Content-Type': 'text/plain'}
+    return "Not found", 404[cite: 2]
+
 @app.route('/CLIENTS.txt')
-def get_users():
+def get_clients():
     if os.path.exists(CLIENTS_FILE):
         with open(CLIENTS_FILE, 'r') as f: return f.read(), 200, {'Content-Type': 'text/plain'}
-    return "Not found", 404
+    return "Not found", 404[cite: 2]
 
 @app.route('/KEYS.txt')
 def get_keys():
