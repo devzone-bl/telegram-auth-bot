@@ -361,7 +361,7 @@ async def handle_cmd_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_cmd_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     command = update.message.text.strip()
-    count, _ = batch_update_users(context.user_data.get("cmd_targets", ""), "CMD", f"CMD-> {command}")
+    count, _ = batch_update_users(context.user_data.get("cmd_targets", ""), f"CMD-> {command}")
     await update.message.reply_text(f"⚡ CMD added to {count} users.")
     return await start(update, context)
 
